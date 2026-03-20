@@ -7,22 +7,163 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { background: #1a1a1e; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-    #root { min-height: 100vh; }
+    .container { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+    .header { text-align: center; margin-bottom: 32px; }
+    .header h1 { font-size: 28px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+    .header p { font-size: 14px; color: #888; }
+    .dropzone { border: 2px dashed #444; border-radius: 12px; padding: 48px; text-align: center; cursor: pointer; background: #222; transition: all 0.2s; margin-bottom: 24px; }
+    .dropzone.active { border-color: #4a9eff; background: rgba(74,158,255,0.05); }
+    .dropzone .main-text { font-size: 16px; color: #aaa; margin-bottom: 8px; }
+    .dropzone .hint { font-size: 12px; color: #666; }
+    .card { background: #2a2a2e; border-radius: 8px; padding: 16px; margin-bottom: 12px; border: 1px solid #333; }
+    .card-title { font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+    .stat-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+    .stat-box { background: #222; border-radius: 8px; padding: 12px; min-width: 100px; flex: 1; text-align: center; }
+    .stat-box .value { font-size: 24px; font-weight: 700; color: #fff; }
+    .stat-box .label { font-size: 12px; color: #888; margin-top: 2px; }
+    .badge { display: inline-block; padding: 4px 12px; border-radius: 12px; color: #000; font-weight: 700; font-size: 13px; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-right: 4px; }
+    .summary-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+    .summary-left { display: flex; align-items: center; gap: 12px; }
+    .summary-right { display: flex; gap: 12px; align-items: center; }
+    .summary-info { font-size: 13px; color: #888; }
+    .tab-bar { display: flex; gap: 4px; border-bottom: 1px solid #333; margin-bottom: 16px; }
+    .tab-bar button { padding: 8px 16px; border: none; border-bottom: 2px solid transparent; background: none; color: #888; cursor: pointer; font-weight: 600; font-size: 13px; }
+    .tab-bar button.active { color: #fff; border-bottom-color: #4a9eff; }
+    .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; font-size: 13px; }
+    .btn-sec { background: #444; color: #ccc; }
+    .btn-sec:hover { background: #555; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #444; color: #888; font-weight: 600; }
+    td { padding: 6px 8px; border-bottom: 1px solid #333; color: #ccc; word-break: break-word; }
+    td.ts { white-space: nowrap; color: #888; }
+    pre.log { background: #1a1a1e; padding: 12px; border-radius: 6px; overflow: auto; font-size: 12px; color: #aaa; max-height: 200px; white-space: pre-wrap; word-break: break-word; }
+    .error-line { font-size: 12px; color: #ccc; padding: 4px 0; border-bottom: 1px solid #333; }
+    .error-line .ts { color: #888; margin-right: 8px; }
+    .error-msg { color: #ff8888; font-size: 13px; text-align: center; margin-top: 12px; }
+    .loading { text-align: center; padding: 48px; color: #888; }
+    .loading .title { font-size: 18px; margin-bottom: 8px; }
+    .loading .sub { font-size: 13px; }
+    .crash-type { font-size: 13px; color: #ff8888; font-weight: 600; }
+    .crash-msg { font-size: 12px; color: #ccc; margin: 4px 0; }
+    .crash-item { margin-bottom: 12px; }
+    .top-actions { margin-bottom: 16px; text-align: right; }
+    .hidden { display: none; }
+    .file-info { font-size: 14px; color: #ccc; }
   </style>
 </head>
 <body>
-  <div id="root"><div style="text-align:center;padding:80px;color:#888">Loading...</div></div>
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script>
+  <div class="container" id="app">
+    <div class="header">
+      <h1>D5 Log Diagnostics</h1>
+      <p>Drop a zip or log files to analyze crashes, errors, memory, and network issues</p>
+    </div>
+    <div id="upload-section">
+      <div class="dropzone" id="dropzone">
+        <div class="main-text">Drag &amp; drop log files or zip archives</div>
+        <div class="hint">.zip, .log, .txt, .out, .err, .crash, .dump, .trace</div>
+        <input type="file" id="file-input" multiple accept=".zip,.log,.txt,.out,.err,.crash,.dump,.trace" style="display:none" />
+      </div>
+      <div id="error-msg" class="error-msg hidden"></div>
+    </div>
+    <div id="loading-section" class="loading hidden">
+      <div class="title">Analyzing logs...</div>
+      <div class="sub">Parsing files and detecting issues</div>
+    </div>
+    <div id="report-section" class="hidden"></div>
+  </div>
+
+<script>
 "use strict";
 
-var useState = React.useState;
-var useCallback = React.useCallback;
-var useMemo = React.useMemo;
-var useRef = React.useRef;
-var h = React.createElement;
+// ─── Minimal Zip Reader (handles standard ZIP with deflate/stored) ──────────
+
+var MiniZip = (function() {
+  function readUint16(buf, off) { return buf[off] | (buf[off+1] << 8); }
+  function readUint32(buf, off) { return (buf[off] | (buf[off+1] << 8) | (buf[off+2] << 16) | (buf[off+3] << 24)) >>> 0; }
+
+  function inflate(data) {
+    var ds = new DecompressionStream('deflate-raw');
+    var writer = ds.writable.getWriter();
+    writer.write(data);
+    writer.close();
+    var reader = ds.readable.getReader();
+    var chunks = [];
+    return (function read() {
+      return reader.read().then(function(result) {
+        if (result.done) {
+          var total = 0;
+          chunks.forEach(function(c) { total += c.length; });
+          var out = new Uint8Array(total);
+          var off = 0;
+          chunks.forEach(function(c) { out.set(c, off); off += c.length; });
+          return out;
+        }
+        chunks.push(result.value);
+        return read();
+      });
+    })();
+  }
+
+  function parseEntries(buffer) {
+    var buf = new Uint8Array(buffer);
+    var entries = [];
+    // Find end of central directory
+    var eocdOff = -1;
+    for (var i = buf.length - 22; i >= 0; i--) {
+      if (readUint32(buf, i) === 0x06054b50) { eocdOff = i; break; }
+    }
+    if (eocdOff < 0) throw new Error('Not a valid ZIP file');
+
+    var cdOffset = readUint32(buf, eocdOff + 16);
+    var cdCount = readUint16(buf, eocdOff + 10);
+    var off = cdOffset;
+
+    for (var n = 0; n < cdCount; n++) {
+      if (readUint32(buf, off) !== 0x02014b50) break;
+      var method = readUint16(buf, off + 10);
+      var compSize = readUint32(buf, off + 20);
+      var uncompSize = readUint32(buf, off + 24);
+      var nameLen = readUint16(buf, off + 28);
+      var extraLen = readUint16(buf, off + 30);
+      var commentLen = readUint16(buf, off + 32);
+      var localOff = readUint32(buf, off + 42);
+      var name = new TextDecoder().decode(buf.slice(off + 46, off + 46 + nameLen));
+      entries.push({ name: name, method: method, compSize: compSize, uncompSize: uncompSize, localOff: localOff });
+      off += 46 + nameLen + extraLen + commentLen;
+    }
+    return { entries: entries, buf: buf };
+  }
+
+  function extractEntry(zip, entry) {
+    var buf = zip.buf;
+    var off = entry.localOff;
+    if (readUint32(buf, off) !== 0x04034b50) throw new Error('Invalid local header');
+    var nameLen = readUint16(buf, off + 26);
+    var extraLen = readUint16(buf, off + 28);
+    var dataStart = off + 30 + nameLen + extraLen;
+    var raw = buf.slice(dataStart, dataStart + entry.compSize);
+
+    if (entry.method === 0) {
+      return Promise.resolve(new TextDecoder().decode(raw));
+    } else if (entry.method === 8) {
+      return inflate(raw).then(function(decompressed) {
+        return new TextDecoder().decode(decompressed);
+      });
+    } else {
+      return Promise.reject(new Error('Unsupported compression method: ' + entry.method));
+    }
+  }
+
+  return {
+    load: function(file) {
+      return file.arrayBuffer().then(function(buffer) {
+        return parseEntries(buffer);
+      });
+    },
+    extract: extractEntry
+  };
+})();
 
 // ─── Parsers ────────────────────────────────────────────────────────────────
 
@@ -30,7 +171,6 @@ function parseCrashLog(text) {
   var lines = text.split('\n');
   var crashes = [];
   var current = null;
-
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i];
     var tsMatch = line.match(/^(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2})/);
@@ -55,15 +195,13 @@ function parseSystemLog(text) {
   var lines = text.split('\n');
   var entries = [];
   var severityCounts = { ERROR: 0, WARN: 0, INFO: 0, DEBUG: 0 };
-
   for (var i = 0; i < lines.length; i++) {
-    var line = lines[i];
-    if (!line.trim()) continue;
-    var match = line.match(/^(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}[^\s]*)\s+\[?(ERROR|WARN|WARNING|INFO|DEBUG)\]?\s*(.*)/i);
+    if (!lines[i].trim()) continue;
+    var match = lines[i].match(/^(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}[^\s]*)\s+\[?(ERROR|WARN|WARNING|INFO|DEBUG)\]?\s*(.*)/i);
     if (match) {
-      var severity = match[2].toUpperCase().startsWith('WARN') ? 'WARN' : match[2].toUpperCase();
-      if (severityCounts[severity] !== undefined) severityCounts[severity]++;
-      entries.push({ timestamp: match[1], severity: severity, message: match[3].trim() });
+      var sev = match[2].toUpperCase().startsWith('WARN') ? 'WARN' : match[2].toUpperCase();
+      if (severityCounts[sev] !== undefined) severityCounts[sev]++;
+      entries.push({ timestamp: match[1], severity: sev, message: match[3].trim() });
     }
   }
   return { entries: entries, severityCounts: severityCounts, total: entries.length };
@@ -73,20 +211,18 @@ function parseMemoryLog(text) {
   var lines = text.split('\n');
   var dataPoints = [];
   var peakUsage = 0;
-
   for (var i = 0; i < lines.length; i++) {
     var match = lines[i].match(/(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2})[^\d]*(\d+(?:\.\d+)?)\s*(MB|GB|KB|bytes)/i);
     if (match) {
-      var valueMB = parseFloat(match[2]);
-      var unit = match[3].toUpperCase();
-      if (unit === 'GB') valueMB *= 1024;
-      else if (unit === 'KB') valueMB /= 1024;
-      else if (unit === 'BYTES') valueMB /= (1024 * 1024);
-      if (valueMB > peakUsage) peakUsage = valueMB;
-      dataPoints.push({ timestamp: match[1], valueMB: valueMB });
+      var val = parseFloat(match[2]);
+      var u = match[3].toUpperCase();
+      if (u === 'GB') val *= 1024;
+      else if (u === 'KB') val /= 1024;
+      else if (u === 'BYTES') val /= (1024 * 1024);
+      if (val > peakUsage) peakUsage = val;
+      dataPoints.push({ timestamp: match[1], valueMB: val });
     }
   }
-
   var oomEvents = (text.match(/\b(OOM|OutOfMemory|out of memory|oom-killer)\b/gi) || []).length;
   return { dataPoints: dataPoints, peakUsage: Math.round(peakUsage), oomEvents: oomEvents };
 }
@@ -94,10 +230,7 @@ function parseMemoryLog(text) {
 function parseNetworkLog(text) {
   var lines = text.split('\n');
   var errors = [];
-  var timeouts = 0;
-  var connectionRefused = 0;
-  var dnsFailures = 0;
-
+  var timeouts = 0, connectionRefused = 0, dnsFailures = 0;
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i];
     if (/timeout/i.test(line)) timeouts++;
@@ -115,7 +248,6 @@ function parseGenericLog(text) {
   var lines = text.split('\n').filter(function(l) { return l.trim(); });
   var errors = 0, warnings = 0;
   var errorLines = [];
-
   for (var i = 0; i < lines.length; i++) {
     if (/\berror\b/i.test(lines[i])) { errors++; errorLines.push(lines[i].trim().slice(0, 200)); }
     if (/\bwarn(ing)?\b/i.test(lines[i])) warnings++;
@@ -145,20 +277,23 @@ function parseFile(name, content) {
   }
 }
 
+function isLogFile(path) {
+  return /\.(log|txt|out|err|crash|dump|trace)$/i.test(path) || /log/i.test(path);
+}
+
 function processZip(file) {
-  return JSZip.loadAsync(file).then(function(zip) {
+  return MiniZip.load(file).then(function(zip) {
     var promises = [];
-    Object.keys(zip.files).forEach(function(path) {
-      var entry = zip.files[path];
-      if (entry.dir) return;
-      if (!/\.(log|txt|out|err|crash|dump|trace)$/i.test(path) && !/log/i.test(path)) return;
+    zip.entries.forEach(function(entry) {
+      if (entry.name.endsWith('/')) return;
+      if (!isLogFile(entry.name)) return;
       promises.push(
-        entry.async('string').then(function(content) {
+        MiniZip.extract(zip, entry).then(function(content) {
           if (!content.trim()) return null;
-          var parsed = parseFile(path, content);
-          return Object.assign({ path: path, size: content.length }, parsed);
+          var parsed = parseFile(entry.name, content);
+          return { path: entry.name, size: content.length, type: parsed.type, data: parsed.data };
         }).catch(function(e) {
-          return { path: path, type: 'error', data: { error: e.message } };
+          return { path: entry.name, type: 'error', data: { error: e.message } };
         })
       );
     });
@@ -172,7 +307,7 @@ function processSingleFile(file) {
   return file.text().then(function(content) {
     if (!content.trim()) return [];
     var parsed = parseFile(file.name, content);
-    return [Object.assign({ path: file.name, size: content.length }, parsed)];
+    return [{ path: file.name, size: content.length, type: parsed.type, data: parsed.data }];
   });
 }
 
@@ -187,7 +322,6 @@ function getSeverity(results) {
     if (r.type === 'network') return sum + r.data.errors.length;
     return sum;
   }, 0);
-
   if (hasCrashes || hasOOM) return { level: 'critical', color: '#ff4444', label: 'Critical' };
   if (totalErrors > 10) return { level: 'high', color: '#ff8c00', label: 'High' };
   if (totalErrors > 0) return { level: 'medium', color: '#ffd700', label: 'Medium' };
@@ -195,215 +329,136 @@ function getSeverity(results) {
 }
 
 function generateTextReport(results, severity) {
-  var report = '=== D5 LOG DIAGNOSTICS REPORT ===\n';
-  report += 'Generated: ' + new Date().toISOString() + '\n';
-  report += 'Overall Severity: ' + severity.label + '\n';
-  report += 'Files Analyzed: ' + results.length + '\n\n';
-
-  results.forEach(function(r) {
-    report += '--- ' + r.path + ' (' + r.type + ') ---\n';
-    switch (r.type) {
+  var r = '=== D5 LOG DIAGNOSTICS REPORT ===\n';
+  r += 'Generated: ' + new Date().toISOString() + '\n';
+  r += 'Overall Severity: ' + severity.label + '\n';
+  r += 'Files Analyzed: ' + results.length + '\n\n';
+  results.forEach(function(f) {
+    r += '--- ' + f.path + ' (' + f.type + ') ---\n';
+    switch (f.type) {
       case 'crash':
-        report += 'Crashes found: ' + r.data.length + '\n';
-        r.data.forEach(function(c, i) {
-          report += '  [' + (i + 1) + '] ' + c.type + ': ' + c.message + '\n';
-          c.stack.forEach(function(s) { report += '       ' + s + '\n'; });
-        });
-        break;
+        r += 'Crashes found: ' + f.data.length + '\n';
+        f.data.forEach(function(c, i) {
+          r += '  [' + (i+1) + '] ' + c.type + ': ' + c.message + '\n';
+          c.stack.forEach(function(s) { r += '       ' + s + '\n'; });
+        }); break;
       case 'system':
-        report += 'Entries: ' + r.data.total + ' | Errors: ' + r.data.severityCounts.ERROR + ' | Warnings: ' + r.data.severityCounts.WARN + '\n';
-        r.data.entries.filter(function(e) { return e.severity === 'ERROR'; }).slice(0, 5).forEach(function(e) {
-          report += '  ERROR ' + e.timestamp + ': ' + e.message + '\n';
-        });
-        break;
+        r += 'Entries: ' + f.data.total + ' | Errors: ' + f.data.severityCounts.ERROR + ' | Warnings: ' + f.data.severityCounts.WARN + '\n';
+        f.data.entries.filter(function(e) { return e.severity === 'ERROR'; }).slice(0, 5).forEach(function(e) {
+          r += '  ERROR ' + e.timestamp + ': ' + e.message + '\n';
+        }); break;
       case 'memory':
-        report += 'Peak: ' + r.data.peakUsage + ' MB | OOM Events: ' + r.data.oomEvents + ' | Data points: ' + r.data.dataPoints.length + '\n';
-        break;
+        r += 'Peak: ' + f.data.peakUsage + ' MB | OOM Events: ' + f.data.oomEvents + ' | Data points: ' + f.data.dataPoints.length + '\n'; break;
       case 'network':
-        report += 'Errors: ' + r.data.errors.length + ' | Timeouts: ' + r.data.timeouts + ' | Refused: ' + r.data.connectionRefused + ' | DNS: ' + r.data.dnsFailures + '\n';
-        break;
+        r += 'Errors: ' + f.data.errors.length + ' | Timeouts: ' + f.data.timeouts + ' | Refused: ' + f.data.connectionRefused + ' | DNS: ' + f.data.dnsFailures + '\n'; break;
       case 'generic':
-        report += 'Lines: ' + r.data.totalLines + ' | Errors: ' + r.data.errors + ' | Warnings: ' + r.data.warnings + '\n';
-        r.data.sampleErrors.slice(0, 5).forEach(function(e) { report += '  ' + e + '\n'; });
-        break;
+        r += 'Lines: ' + f.data.totalLines + ' | Errors: ' + f.data.errors + ' | Warnings: ' + f.data.warnings + '\n';
+        f.data.sampleErrors.slice(0, 5).forEach(function(e) { r += '  ' + e + '\n'; }); break;
     }
-    report += '\n';
+    r += '\n';
   });
-  return report;
+  return r;
 }
 
-// ─── Styles ─────────────────────────────────────────────────────────────────
+// ─── DOM Rendering ──────────────────────────────────────────────────────────
 
-var S = {
-  container: { maxWidth: 960, margin: '0 auto', padding: '24px 16px' },
-  header: { textAlign: 'center', marginBottom: 32 },
-  title: { fontSize: 28, fontWeight: 700, color: '#fff', marginBottom: 4 },
-  subtitle: { fontSize: 14, color: '#888' },
-  card: { background: '#2a2a2e', borderRadius: 8, padding: 16, marginBottom: 12, border: '1px solid #333' },
-  cardTitle: { fontSize: 14, fontWeight: 600, color: '#ccc', marginBottom: 8 },
-  stat: { fontSize: 24, fontWeight: 700, color: '#fff' },
-  statLabel: { fontSize: 12, color: '#888', marginTop: 2 },
-  statRow: { display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 },
-  statBox: { background: '#222', borderRadius: 8, padding: 12, minWidth: 100, flex: 1, textAlign: 'center' },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  th: { textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #444', color: '#888', fontWeight: 600 },
-  td: { padding: '6px 8px', borderBottom: '1px solid #333', color: '#ccc', wordBreak: 'break-word' },
-  btn: { padding: '8px 16px', borderRadius: 6, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
-  btnSec: { background: '#444', color: '#ccc' },
-  pre: { background: '#1a1a1e', padding: 12, borderRadius: 6, overflow: 'auto', fontSize: 12, color: '#aaa', maxHeight: 200 },
-  tabBar: { display: 'flex', gap: 4, borderBottom: '1px solid #333', marginBottom: 16 },
-};
+var $ = function(id) { return document.getElementById(id); };
 
-function dropzoneStyle(active) {
-  return { border: '2px dashed ' + (active ? '#4a9eff' : '#444'), borderRadius: 12, padding: 48, textAlign: 'center', cursor: 'pointer', background: active ? 'rgba(74,158,255,0.05)' : '#222', transition: 'all 0.2s', marginBottom: 24 };
-}
-function badgeStyle(color) {
-  return { display: 'inline-block', padding: '4px 12px', borderRadius: 12, background: color, color: '#000', fontWeight: 700, fontSize: 13 };
-}
-function tagStyle(color) {
-  return { display: 'inline-block', padding: '2px 8px', borderRadius: 4, background: color + '22', color: color, fontSize: 11, fontWeight: 600, marginRight: 4 };
-}
-function tabStyle(active) {
-  return { padding: '8px 16px', border: 'none', borderBottom: active ? '2px solid #4a9eff' : '2px solid transparent', background: 'none', color: active ? '#fff' : '#888', cursor: 'pointer', fontWeight: 600, fontSize: 13 };
+function esc(s) {
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
 }
 
-// ─── UI Components ──────────────────────────────────────────────────────────
-
-function StatBox(props) {
-  return h('div', { style: S.statBox },
-    h('div', { style: S.stat }, props.value),
-    h('div', { style: S.statLabel }, props.label)
-  );
+function renderStatBox(value, label) {
+  return '<div class="stat-box"><div class="value">' + esc(String(value)) + '</div><div class="label">' + esc(label) + '</div></div>';
 }
 
-function CrashCard(props) {
-  var file = props.file;
-  var crashes = file.data;
-  if (!crashes.length) return h('div', { style: S.card },
-    h('div', { style: S.cardTitle }, file.path),
-    h('div', { style: { color: '#888', fontSize: 13 } }, 'No crashes detected')
-  );
-
-  return h('div', { style: S.card },
-    h('div', { style: Object.assign({}, S.cardTitle, { display: 'flex', justifyContent: 'space-between' }) },
-      h('span', null, file.path),
-      h('span', { style: tagStyle('#ff4444') }, crashes.length + ' crash' + (crashes.length > 1 ? 'es' : ''))
-    ),
-    crashes.slice(0, 10).map(function(c, i) {
-      return h('div', { key: i, style: { marginBottom: 12 } },
-        h('div', { style: { fontSize: 13, color: '#ff8888', fontWeight: 600 } }, c.type + (c.timestamp ? ' @ ' + c.timestamp : '')),
-        h('div', { style: { fontSize: 12, color: '#ccc', margin: '4px 0' } }, c.message),
-        c.stack.length > 0 ? h('pre', { style: S.pre }, c.stack.join('\n')) : null
-      );
-    })
-  );
+function renderCrashCard(f) {
+  var html = '<div class="card"><div class="card-title"><span>' + esc(f.path) + '</span>';
+  html += '<span class="tag" style="background:#ff444422;color:#ff4444">' + f.data.length + ' crash' + (f.data.length !== 1 ? 'es' : '') + '</span></div>';
+  if (!f.data.length) { html += '<div style="color:#888;font-size:13px">No crashes detected</div>'; }
+  f.data.slice(0, 10).forEach(function(c) {
+    html += '<div class="crash-item">';
+    html += '<div class="crash-type">' + esc(c.type) + (c.timestamp ? ' @ ' + esc(c.timestamp) : '') + '</div>';
+    html += '<div class="crash-msg">' + esc(c.message) + '</div>';
+    if (c.stack.length) html += '<pre class="log">' + esc(c.stack.join('\n')) + '</pre>';
+    html += '</div>';
+  });
+  return html + '</div>';
 }
 
-function SystemCard(props) {
-  var d = props.file.data;
-  return h('div', { style: S.card },
-    h('div', { style: S.cardTitle }, props.file.path),
-    h('div', { style: S.statRow },
-      h(StatBox, { value: d.total, label: 'Total' }),
-      h(StatBox, { value: d.severityCounts.ERROR, label: 'Errors' }),
-      h(StatBox, { value: d.severityCounts.WARN, label: 'Warnings' })
-    ),
-    d.severityCounts.ERROR > 0 ? h('div', null,
-      h('div', { style: { fontSize: 12, color: '#888', marginBottom: 4 } }, 'Recent errors:'),
-      h('table', { style: S.table },
-        h('thead', null, h('tr', null, h('th', { style: S.th }, 'Time'), h('th', { style: S.th }, 'Message'))),
-        h('tbody', null, d.entries.filter(function(e) { return e.severity === 'ERROR'; }).slice(0, 10).map(function(e, i) {
-          return h('tr', { key: i },
-            h('td', { style: Object.assign({}, S.td, { whiteSpace: 'nowrap', color: '#888' }) }, e.timestamp),
-            h('td', { style: S.td }, e.message)
-          );
-        }))
-      )
-    ) : null
-  );
-}
-
-function MemoryCard(props) {
-  var d = props.file.data;
-  return h('div', { style: S.card },
-    h('div', { style: S.cardTitle }, props.file.path),
-    h('div', { style: S.statRow },
-      h(StatBox, { value: d.peakUsage + ' MB', label: 'Peak Usage' }),
-      h(StatBox, { value: d.oomEvents, label: 'OOM Events' }),
-      h(StatBox, { value: d.dataPoints.length, label: 'Data Points' })
-    ),
-    d.oomEvents > 0 ? h('div', { style: tagStyle('#ff4444') }, 'OOM Detected!') : null
-  );
-}
-
-function NetworkCard(props) {
-  var d = props.file.data;
-  return h('div', { style: S.card },
-    h('div', { style: S.cardTitle }, props.file.path),
-    h('div', { style: S.statRow },
-      h(StatBox, { value: d.errors.length, label: 'Errors' }),
-      h(StatBox, { value: d.timeouts, label: 'Timeouts' }),
-      h(StatBox, { value: d.connectionRefused, label: 'Refused' }),
-      h(StatBox, { value: d.dnsFailures, label: 'DNS Failures' })
-    ),
-    d.errors.length > 0 ? h('div', null,
-      h('div', { style: { fontSize: 12, color: '#888', marginBottom: 4 } }, 'Recent errors:'),
-      d.errors.slice(0, 10).map(function(e, i) {
-        return h('div', { key: i, style: { fontSize: 12, color: '#ccc', padding: '4px 0', borderBottom: '1px solid #333' } },
-          e.timestamp ? h('span', { style: { color: '#888', marginRight: 8 } }, e.timestamp) : null,
-          e.message
-        );
-      })
-    ) : null
-  );
-}
-
-function GenericCard(props) {
-  var d = props.file.data;
-  return h('div', { style: S.card },
-    h('div', { style: S.cardTitle }, props.file.path),
-    h('div', { style: S.statRow },
-      h(StatBox, { value: d.totalLines, label: 'Lines' }),
-      h(StatBox, { value: d.errors, label: 'Errors' }),
-      h(StatBox, { value: d.warnings, label: 'Warnings' })
-    ),
-    d.sampleErrors.length > 0 ? h('pre', { style: S.pre }, d.sampleErrors.slice(0, 5).join('\n')) : null
-  );
-}
-
-function FileCard(props) {
-  var file = props.file;
-  if (file.type === 'error') {
-    return h('div', { style: S.card },
-      h('div', { style: S.cardTitle }, file.path),
-      h('div', { style: { color: '#ff8888', fontSize: 13 } }, 'Parse error: ' + file.data.error)
-    );
+function renderSystemCard(f) {
+  var d = f.data;
+  var html = '<div class="card"><div class="card-title"><span>' + esc(f.path) + '</span></div>';
+  html += '<div class="stat-row">' + renderStatBox(d.total, 'Total') + renderStatBox(d.severityCounts.ERROR, 'Errors') + renderStatBox(d.severityCounts.WARN, 'Warnings') + '</div>';
+  if (d.severityCounts.ERROR > 0) {
+    html += '<div style="font-size:12px;color:#888;margin-bottom:4px">Recent errors:</div>';
+    html += '<table><thead><tr><th>Time</th><th>Message</th></tr></thead><tbody>';
+    d.entries.filter(function(e) { return e.severity === 'ERROR'; }).slice(0, 10).forEach(function(e) {
+      html += '<tr><td class="ts">' + esc(e.timestamp) + '</td><td>' + esc(e.message) + '</td></tr>';
+    });
+    html += '</tbody></table>';
   }
-  switch (file.type) {
-    case 'crash': return h(CrashCard, { file: file });
-    case 'system': return h(SystemCard, { file: file });
-    case 'memory': return h(MemoryCard, { file: file });
-    case 'network': return h(NetworkCard, { file: file });
-    default: return h(GenericCard, { file: file });
+  return html + '</div>';
+}
+
+function renderMemoryCard(f) {
+  var d = f.data;
+  var html = '<div class="card"><div class="card-title"><span>' + esc(f.path) + '</span></div>';
+  html += '<div class="stat-row">' + renderStatBox(d.peakUsage + ' MB', 'Peak Usage') + renderStatBox(d.oomEvents, 'OOM Events') + renderStatBox(d.dataPoints.length, 'Data Points') + '</div>';
+  if (d.oomEvents > 0) html += '<span class="tag" style="background:#ff444422;color:#ff4444">OOM Detected!</span>';
+  return html + '</div>';
+}
+
+function renderNetworkCard(f) {
+  var d = f.data;
+  var html = '<div class="card"><div class="card-title"><span>' + esc(f.path) + '</span></div>';
+  html += '<div class="stat-row">' + renderStatBox(d.errors.length, 'Errors') + renderStatBox(d.timeouts, 'Timeouts') + renderStatBox(d.connectionRefused, 'Refused') + renderStatBox(d.dnsFailures, 'DNS Failures') + '</div>';
+  if (d.errors.length > 0) {
+    html += '<div style="font-size:12px;color:#888;margin-bottom:4px">Recent errors:</div>';
+    d.errors.slice(0, 10).forEach(function(e) {
+      html += '<div class="error-line">';
+      if (e.timestamp) html += '<span class="ts">' + esc(e.timestamp) + '</span>';
+      html += esc(e.message) + '</div>';
+    });
+  }
+  return html + '</div>';
+}
+
+function renderGenericCard(f) {
+  var d = f.data;
+  var html = '<div class="card"><div class="card-title"><span>' + esc(f.path) + '</span></div>';
+  html += '<div class="stat-row">' + renderStatBox(d.totalLines, 'Lines') + renderStatBox(d.errors, 'Errors') + renderStatBox(d.warnings, 'Warnings') + '</div>';
+  if (d.sampleErrors.length > 0) html += '<pre class="log">' + esc(d.sampleErrors.slice(0, 5).join('\n')) + '</pre>';
+  return html + '</div>';
+}
+
+function renderFileCard(f) {
+  if (f.type === 'error') {
+    return '<div class="card"><div class="card-title">' + esc(f.path) + '</div><div style="color:#ff8888;font-size:13px">Parse error: ' + esc(f.data.error) + '</div></div>';
+  }
+  switch (f.type) {
+    case 'crash': return renderCrashCard(f);
+    case 'system': return renderSystemCard(f);
+    case 'memory': return renderMemoryCard(f);
+    case 'network': return renderNetworkCard(f);
+    default: return renderGenericCard(f);
   }
 }
 
-function Report(props) {
-  var results = props.results;
-  var tabState = useState('all');
-  var activeTab = tabState[0];
-  var setActiveTab = tabState[1];
+var currentResults = null;
+var currentSeverity = null;
+var activeTab = 'all';
 
-  var severity = useMemo(function() { return getSeverity(results); }, [results]);
+function renderReport(results) {
+  currentResults = results;
+  currentSeverity = getSeverity(results);
+  activeTab = 'all';
 
-  var tabs = useMemo(function() {
-    var types = ['all'];
-    var seen = {};
-    results.forEach(function(r) { if (!seen[r.type]) { seen[r.type] = true; types.push(r.type); } });
-    return types;
-  }, [results]);
-
-  var filtered = activeTab === 'all' ? results : results.filter(function(r) { return r.type === activeTab; });
+  var types = ['all'];
+  var seen = {};
+  results.forEach(function(r) { if (!seen[r.type]) { seen[r.type] = true; types.push(r.type); } });
 
   var totalCrashes = results.filter(function(r) { return r.type === 'crash'; }).reduce(function(s, r) { return s + r.data.length; }, 0);
   var totalErrors = results.reduce(function(sum, r) {
@@ -413,138 +468,123 @@ function Report(props) {
     return sum;
   }, 0);
 
-  var handleExport = function() {
-    var text = generateTextReport(results, severity);
-    var blob = new Blob([text], { type: 'text/plain' });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = 'd5-diagnostics-' + Date.now() + '.txt';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  var html = '<div class="top-actions"><button class="btn btn-sec" onclick="resetApp()">Analyze New Files</button></div>';
 
-  return h('div', null,
-    h('div', { style: Object.assign({}, S.card, { display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }) },
-      h('div', { style: { display: 'flex', alignItems: 'center', gap: 12 } },
-        h('span', { style: badgeStyle(severity.color) }, severity.label),
-        h('span', { style: { fontSize: 14, color: '#ccc' } }, results.length + ' files analyzed')
-      ),
-      h('div', { style: { display: 'flex', gap: 12, alignItems: 'center' } },
-        h('span', { style: { fontSize: 13, color: '#888' } }, totalCrashes + ' crashes \u00B7 ' + totalErrors + ' errors'),
-        h('button', { style: Object.assign({}, S.btn, S.btnSec), onClick: handleExport }, 'Export Report')
-      )
-    ),
-    h('div', { style: S.tabBar },
-      tabs.map(function(t) {
-        var count = t === 'all' ? results.length : results.filter(function(r) { return r.type === t; }).length;
-        return h('button', { key: t, style: tabStyle(activeTab === t), onClick: function() { setActiveTab(t); } },
-          (t === 'all' ? 'All' : t) + ' (' + count + ')'
-        );
-      })
-    ),
-    filtered.map(function(f, i) { return h(FileCard, { key: i, file: f }); })
-  );
+  // Summary bar
+  html += '<div class="card summary-bar">';
+  html += '<div class="summary-left"><span class="badge" style="background:' + currentSeverity.color + '">' + esc(currentSeverity.label) + '</span>';
+  html += '<span class="file-info">' + results.length + ' files analyzed</span></div>';
+  html += '<div class="summary-right"><span class="summary-info">' + totalCrashes + ' crashes \u00B7 ' + totalErrors + ' errors</span>';
+  html += '<button class="btn btn-sec" onclick="exportReport()">Export Report</button></div></div>';
+
+  // Tabs
+  html += '<div class="tab-bar" id="tab-bar">';
+  types.forEach(function(t) {
+    var count = t === 'all' ? results.length : results.filter(function(r) { return r.type === t; }).length;
+    var cls = t === 'all' ? 'active' : '';
+    html += '<button class="' + cls + '" data-tab="' + t + '" onclick="switchTab(\'' + t + '\')">' + (t === 'all' ? 'All' : t) + ' (' + count + ')</button>';
+  });
+  html += '</div>';
+
+  // Cards
+  html += '<div id="cards-container">';
+  results.forEach(function(f) { html += renderFileCard(f); });
+  html += '</div>';
+
+  $('report-section').innerHTML = html;
+  $('report-section').classList.remove('hidden');
 }
 
-function App() {
-  var resultState = useState(null);
-  var results = resultState[0]; var setResults = resultState[1];
-  var loadState = useState(false);
-  var loading = loadState[0]; var setLoading = loadState[1];
-  var dragState = useState(false);
-  var dragActive = dragState[0]; var setDragActive = dragState[1];
-  var errState = useState(null);
-  var error = errState[0]; var setError = errState[1];
-  var inputRef = useRef(null);
+function switchTab(tab) {
+  activeTab = tab;
+  var filtered = tab === 'all' ? currentResults : currentResults.filter(function(r) { return r.type === tab; });
+  var html = '';
+  filtered.forEach(function(f) { html += renderFileCard(f); });
+  document.getElementById('cards-container').innerHTML = html;
 
-  var handleFiles = useCallback(function(files) {
-    if (!files.length) return;
-    setLoading(true);
-    setError(null);
+  var buttons = document.querySelectorAll('#tab-bar button');
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].className = buttons[i].getAttribute('data-tab') === tab ? 'active' : '';
+  }
+}
 
-    var chain = Promise.resolve([]);
-    for (var i = 0; i < files.length; i++) {
-      (function(file) {
-        chain = chain.then(function(all) {
-          if (/\.zip$/i.test(file.name)) {
-            return processZip(file).then(function(r) { return all.concat(r); });
-          } else {
-            return processSingleFile(file).then(function(r) { return all.concat(r); });
-          }
-        });
-      })(files[i]);
-    }
+function exportReport() {
+  var text = generateTextReport(currentResults, currentSeverity);
+  var blob = new Blob([text], { type: 'text/plain' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'd5-diagnostics-' + Date.now() + '.txt';
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
-    chain.then(function(allResults) {
-      if (allResults.length === 0) {
-        setError('No log files found. Supported: .log, .txt, .out, .err, .crash, .dump, .trace');
-      } else {
-        setResults(allResults);
-      }
-      setLoading(false);
-    }).catch(function(e) {
-      setError('Failed to process files: ' + e.message);
-      setLoading(false);
-    });
-  }, []);
+function resetApp() {
+  currentResults = null;
+  currentSeverity = null;
+  $('report-section').classList.add('hidden');
+  $('report-section').innerHTML = '';
+  $('upload-section').classList.remove('hidden');
+  $('error-msg').classList.add('hidden');
+  $('file-input').value = '';
+}
 
-  var onDrop = useCallback(function(e) {
-    e.preventDefault();
-    setDragActive(false);
-    var files = [];
-    for (var i = 0; i < e.dataTransfer.files.length; i++) files.push(e.dataTransfer.files[i]);
-    handleFiles(files);
-  }, [handleFiles]);
+function handleFiles(files) {
+  if (!files.length) return;
+  $('upload-section').classList.add('hidden');
+  $('error-msg').classList.add('hidden');
+  $('loading-section').classList.remove('hidden');
 
-  var onDragOver = useCallback(function(e) { e.preventDefault(); setDragActive(true); }, []);
-  var onDragLeave = useCallback(function() { setDragActive(false); }, []);
-  var onReset = useCallback(function() { setResults(null); setError(null); }, []);
-
-  if (loading) {
-    return h('div', { style: S.container },
-      h('div', { style: { textAlign: 'center', padding: 48, color: '#888' } },
-        h('div', { style: { fontSize: 18, marginBottom: 8 } }, 'Analyzing logs...'),
-        h('div', { style: { fontSize: 13 } }, 'Parsing files and detecting issues')
-      )
-    );
+  var chain = Promise.resolve([]);
+  for (var i = 0; i < files.length; i++) {
+    (function(file) {
+      chain = chain.then(function(all) {
+        if (/\.zip$/i.test(file.name)) {
+          return processZip(file).then(function(r) { return all.concat(r); });
+        } else {
+          return processSingleFile(file).then(function(r) { return all.concat(r); });
+        }
+      });
+    })(files[i]);
   }
 
-  return h('div', { style: S.container },
-    h('div', { style: S.header },
-      h('div', { style: S.title }, 'D5 Log Diagnostics'),
-      h('div', { style: S.subtitle }, 'Drop a zip or log files to analyze crashes, errors, memory, and network issues')
-    ),
-    !results ? h('div', null,
-      h('div', {
-        style: dropzoneStyle(dragActive),
-        onDrop: onDrop, onDragOver: onDragOver, onDragLeave: onDragLeave,
-        onClick: function() { if (inputRef.current) inputRef.current.click(); }
-      },
-        h('div', { style: { fontSize: 16, color: '#aaa', marginBottom: 8 } }, dragActive ? 'Drop files here' : 'Drag & drop log files or zip archives'),
-        h('div', { style: { fontSize: 12, color: '#666' } }, '.zip, .log, .txt, .out, .err, .crash, .dump, .trace'),
-        h('input', {
-          ref: inputRef, type: 'file', multiple: true,
-          accept: '.zip,.log,.txt,.out,.err,.crash,.dump,.trace',
-          style: { display: 'none' },
-          onChange: function(e) {
-            var files = [];
-            for (var i = 0; i < e.target.files.length; i++) files.push(e.target.files[i]);
-            handleFiles(files);
-          }
-        })
-      ),
-      error ? h('div', { style: { color: '#ff8888', textAlign: 'center', marginTop: 12 } }, error) : null
-    ) : h('div', null,
-      h('div', { style: { marginBottom: 16, textAlign: 'right' } },
-        h('button', { style: Object.assign({}, S.btn, S.btnSec), onClick: onReset }, 'Analyze New Files')
-      ),
-      h(Report, { results: results })
-    )
-  );
+  chain.then(function(allResults) {
+    $('loading-section').classList.add('hidden');
+    if (allResults.length === 0) {
+      $('upload-section').classList.remove('hidden');
+      $('error-msg').textContent = 'No log files found. Supported: .log, .txt, .out, .err, .crash, .dump, .trace';
+      $('error-msg').classList.remove('hidden');
+    } else {
+      renderReport(allResults);
+    }
+  }).catch(function(e) {
+    $('loading-section').classList.add('hidden');
+    $('upload-section').classList.remove('hidden');
+    $('error-msg').textContent = 'Failed to process files: ' + e.message;
+    $('error-msg').classList.remove('hidden');
+  });
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(h(App));
-  </script>
+// ─── Event Listeners ────────────────────────────────────────────────────────
+
+var dropzone = $('dropzone');
+var fileInput = $('file-input');
+
+dropzone.addEventListener('click', function() { fileInput.click(); });
+dropzone.addEventListener('dragover', function(e) { e.preventDefault(); dropzone.classList.add('active'); });
+dropzone.addEventListener('dragleave', function() { dropzone.classList.remove('active'); });
+dropzone.addEventListener('drop', function(e) {
+  e.preventDefault();
+  dropzone.classList.remove('active');
+  var files = [];
+  for (var i = 0; i < e.dataTransfer.files.length; i++) files.push(e.dataTransfer.files[i]);
+  handleFiles(files);
+});
+fileInput.addEventListener('change', function(e) {
+  var files = [];
+  for (var i = 0; i < e.target.files.length; i++) files.push(e.target.files[i]);
+  handleFiles(files);
+});
+</script>
 </body>
 </html>
