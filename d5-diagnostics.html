@@ -167,6 +167,46 @@ var MiniZip = (function() {
 
 // ─── Parsers ────────────────────────────────────────────────────────────────
 
+// Extract GPU adapter info from D5/Unreal Engine log text
+function extractGpuInfo(text) {
+  var info = {};
+  var m;
+
+  // Adapter name — various UE log formats
+  m = text.match(/GRHIAdapterName\s*=\s*(.+)/i) ||
+      text.match(/Chosen D3D12 Adapter[:\s]+(\d+\s*[:.]?\s*)?(.+)/i) ||
+      text.match(/LogRHI.*Adapter\s*(?:Name)?\s*[:=]\s*(.+)/i) ||
+      text.match(/LogD3D12RHI.*Adapter[:\s]+(.+)/i) ||
+      text.match(/RHI[:\s]+(.+(?:NVIDIA|AMD|Intel|Radeon|GeForce|Arc|Quadro).+)/i);
+  if (m) {
+    // Take last capture group (some patterns have 2 groups)
+    info.adapter = (m[m.length - 1] || '').replace(/[\[\]]/g, '').trim();
+  }
+
+  // VRAM — dedicated video memory
+  m = text.match(/Dedicated Video Memory:\s*(\d+)\s*MB/i) ||
+      text.match(/VRAM[:\s]+(\d+)\s*MB/i) ||
+      text.match(/GRHIAdapterDedicatedVideoMemory\s*=\s*(\d+)/i) ||
+      text.match(/DedicatedVideoMemory:\s*(\d+)/i);
+  if (m) info.vramMB = parseInt(m[1], 10);
+
+  // Driver version
+  m = text.match(/GRHIAdapterDriverVersion\s*=\s*(.+)/i) ||
+      text.match(/Driver Version[:\s]+(\S+)/i) ||
+      text.match(/LogD3D12RHI.*Driver[:\s]+(\S+)/i);
+  if (m) info.driverVersion = m[1].trim();
+
+  // D3D feature level
+  m = text.match(/D3D Feature Level[:\s]+([\d_]+)/i) ||
+      text.match(/MaxFeatureLevel[:\s]+([\d_]+)/i);
+  if (m) info.featureLevel = m[1].trim();
+
+  // Internal resolution (RHI)
+  m = text.match(/GRHIAdapterInternalDriverVersion\s*=\s*(.+)/i);
+  if (m) info.internalDriverVersion = m[1].trim();
+
+  return Object.keys(info).length > 0 ? info : null;
+}
 // D5-specific crash sub-type detection
 function classifyCrashType(lines, startIdx) {
   // Look at surrounding context (50 lines before and after the crash trigger)
@@ -203,6 +243,9 @@ function parseCrashLog(text) {
   var crashes = [];
   var current = null;
   var currentStartIdx = 0;
+
+  // Extract GPU adapter info from the full log (reported at startup)
+  var gpuInfo = extractGpuInfo(text);
 
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i];
@@ -268,9 +311,12 @@ function parseCrashLog(text) {
     if (!c.type || c.type === 'Error' || c.type === 'Crash') {
       c.type = c.category || c.type || 'Crash';
     }
+    if (gpuInfo) c.gpuInfo = gpuInfo;
     delete c._startIdx;
   });
 
+  // Attach gpuInfo to the array itself so callers can access it
+  crashes.gpuInfo = gpuInfo;
   return crashes;
 }
 
@@ -514,16 +560,26 @@ function buildFindings(results) {
   results.filter(function(f) { return f.type === 'crash' && f.data.length > 0; }).forEach(function(f) {
     var types = {};
     f.data.forEach(function(c) {
-      var t = c.type || 'Unknown';
+      var t = c.category || c.type || 'Unknown';
       if (!types[t]) types[t] = { count: 0, first: c };
       types[t].count++;
     });
     Object.keys(types).forEach(function(t) {
       var info = types[t];
+      var detail = info.first.message;
+      // Add GPU adapter info to GPU crash findings
+      if (/GPU/i.test(t) && info.first.gpuInfo) {
+        var gi = info.first.gpuInfo;
+        var parts = [];
+        if (gi.adapter) parts.push('Adapter: ' + gi.adapter);
+        if (gi.vramMB) parts.push('VRAM: ' + (gi.vramMB >= 1024 ? (gi.vramMB / 1024).toFixed(0) + ' GB' : gi.vramMB + ' MB'));
+        if (gi.driverVersion) parts.push('Driver: ' + gi.driverVersion);
+        if (parts.length) detail += '\n' + parts.join(' | ');
+      }
       findings.push({
         priority: 1, icon: '[CRASH]',
         title: t + ' in ' + f.path + ' (' + info.count + 'x)',
-        detail: info.first.message,
+        detail: detail,
         stack: info.first.stack.slice(0, 3).join('\n         ')
       });
     });
@@ -584,10 +640,21 @@ function buildNextSteps(results, totalCrashes, totalErrors, oomCount) {
     });
     var catKeys = Object.keys(crashCategories);
 
-    // D5-specific: GPU crashes
+    // D5-specific: GPU crashes — include adapter info if available
     if (catKeys.some(function(t) { return /GPU/i.test(t); })) {
       var gpuCount = catKeys.reduce(function(s, t) { return /GPU/i.test(t) ? s + crashCategories[t] : s; }, 0);
-      steps.push('GPU CRASH (' + gpuCount + 'x) \u2014 DXGI_ERROR_DEVICE_HUNG indicates the GPU timed out or ran out of VRAM. This is typically caused by excessive VRAM usage from too many assets or heavy environmental settings. Reduce texture quality, lower render resolution, or simplify the scene. Forward the log files to the D5 team for further investigation.');
+      // Find GPU info from any crash file
+      var gpuInfo = null;
+      results.filter(function(f) { return f.type === 'crash'; }).some(function(f) {
+        if (f.data.gpuInfo) { gpuInfo = f.data.gpuInfo; return true; }
+        return f.data.some(function(c) { if (c.gpuInfo) { gpuInfo = c.gpuInfo; return true; } return false; });
+      });
+      var gpuDetail = 'GPU CRASH (' + gpuCount + 'x)';
+      if (gpuInfo && gpuInfo.adapter) gpuDetail += ' on ' + gpuInfo.adapter;
+      if (gpuInfo && gpuInfo.vramMB) gpuDetail += ' (' + (gpuInfo.vramMB >= 1024 ? (gpuInfo.vramMB / 1024).toFixed(0) + ' GB VRAM' : gpuInfo.vramMB + ' MB VRAM') + ')';
+      if (gpuInfo && gpuInfo.driverVersion) gpuDetail += ', driver ' + gpuInfo.driverVersion;
+      gpuDetail += ' \u2014 DXGI_ERROR_DEVICE_HUNG indicates the GPU timed out or ran out of VRAM. This is typically caused by excessive VRAM usage from too many assets or heavy environmental settings. Reduce texture quality, lower render resolution, or simplify the scene. Forward the log files to the D5 team for further investigation.';
+      steps.push(gpuDetail);
     }
 
     // D5-specific: Engine crashes (stitching)
@@ -734,6 +801,19 @@ function renderCrashCard(f) {
     html += '<span class="tag" style="background:' + col.bg + ';color:' + col.fg + '">' + categories[cat] + ' ' + esc(cat) + '</span> ';
   });
   html += '</span></div>';
+
+  // Show GPU adapter info if available and this file has GPU crashes
+  var hasGpuCrash = Object.keys(categories).some(function(c) { return /GPU/i.test(c); });
+  var gpuInfo = f.data.gpuInfo || (f.data.length > 0 && f.data[0].gpuInfo);
+  if (hasGpuCrash && gpuInfo) {
+    html += '<div style="background:#1a1a2e;border:1px solid #ff8c0044;border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:12px">';
+    html += '<span style="color:#ff8c00;font-weight:600">GPU Adapter</span>';
+    if (gpuInfo.adapter) html += '<span style="color:#ccc;margin-left:12px">' + esc(gpuInfo.adapter) + '</span>';
+    if (gpuInfo.vramMB) html += '<span style="color:#888;margin-left:12px">VRAM: ' + (gpuInfo.vramMB >= 1024 ? (gpuInfo.vramMB / 1024).toFixed(1) + ' GB' : gpuInfo.vramMB + ' MB') + '</span>';
+    if (gpuInfo.driverVersion) html += '<span style="color:#888;margin-left:12px">Driver: ' + esc(gpuInfo.driverVersion) + '</span>';
+    if (gpuInfo.featureLevel) html += '<span style="color:#888;margin-left:12px">D3D FL: ' + esc(gpuInfo.featureLevel) + '</span>';
+    html += '</div>';
+  }
 
   f.data.slice(0, 10).forEach(function(c) {
     var col = crashTagColor(c.category || c.type);
@@ -985,6 +1065,21 @@ function exportPdf() {
   if (crashFiles.length > 0) {
     h += '<div class="sep"></div>';
     h += '<h2>Crash Details</h2>';
+    // Show GPU adapter info in PDF if available
+    var pdfGpuInfo = null;
+    crashFiles.some(function(f) {
+      if (f.data.gpuInfo) { pdfGpuInfo = f.data.gpuInfo; return true; }
+      return f.data.some(function(c) { if (c.gpuInfo) { pdfGpuInfo = c.gpuInfo; return true; } return false; });
+    });
+    if (pdfGpuInfo) {
+      h += '<div style="background:#f0f0f0;border:1px solid #ddd;border-radius:4px;padding:6px 10px;margin-bottom:8px;font-size:11px">';
+      h += '<strong>GPU Adapter:</strong> ';
+      if (pdfGpuInfo.adapter) h += esc(pdfGpuInfo.adapter);
+      if (pdfGpuInfo.vramMB) h += ' &nbsp;|&nbsp; VRAM: ' + (pdfGpuInfo.vramMB >= 1024 ? (pdfGpuInfo.vramMB / 1024).toFixed(1) + ' GB' : pdfGpuInfo.vramMB + ' MB');
+      if (pdfGpuInfo.driverVersion) h += ' &nbsp;|&nbsp; Driver: ' + esc(pdfGpuInfo.driverVersion);
+      if (pdfGpuInfo.featureLevel) h += ' &nbsp;|&nbsp; D3D FL: ' + esc(pdfGpuInfo.featureLevel);
+      h += '</div>';
+    }
     crashFiles.forEach(function(f) {
       h += '<div style="font-weight:600;margin:8px 0 4px;font-size:11px;color:#666">' + esc(f.path) + '</div>';
       f.data.slice(0, 10).forEach(function(c) {
