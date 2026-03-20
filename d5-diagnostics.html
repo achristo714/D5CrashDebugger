@@ -167,27 +167,110 @@ var MiniZip = (function() {
 
 // ─── Parsers ────────────────────────────────────────────────────────────────
 
+// D5-specific crash sub-type detection
+function classifyCrashType(lines, startIdx) {
+  // Look at surrounding context (50 lines before and after the crash trigger)
+  var contextStart = Math.max(0, startIdx - 50);
+  var contextEnd = Math.min(lines.length, startIdx + 100);
+  var context = lines.slice(contextStart, contextEnd).join('\n');
+
+  // GPU crash indicators
+  if (/DXGI_ERROR_DEVICE_HUNG|DXGI_ERROR_DEVICE_REMOVED|DXGI_ERROR_DEVICE_RESET/i.test(context)) return 'GPU Crash';
+  if (/GPU.*crash|GPU.*hang|GPU.*fault/i.test(context)) return 'GPU Crash';
+  if (/LogD3D12RHI.*Error|D3D12.*failed|D3D12.*error/i.test(context)) return 'GPU Crash';
+  if (/GPUBreadCrumb|GPU Breadcrumb/i.test(context)) return 'GPU Crash';
+  if (/VK_ERROR_DEVICE_LOST|Vulkan.*device lost/i.test(context)) return 'GPU Crash';
+  if (/CreatePlacedResource failed|Map\(Subresource.*failed/i.test(context)) return 'GPU Crash';
+
+  // Engine crash indicators
+  if (/EXCEPTION_ACCESS_VIOLATION|access violation/i.test(context)) return 'Engine Crash';
+  if (/Unhandled Exception/i.test(context)) return 'Engine Crash';
+  if (/Fatal error.*\[.*Line.*\]/i.test(context)) return 'Engine Crash';
+  if (/Assertion failed/i.test(context)) return 'Engine Crash';
+  if (/LogWindows.*Error.*Fatal/i.test(context)) return 'Engine Crash';
+  if (/StaticShutdownAfterError|RequestExit/i.test(context)) return 'Engine Crash';
+  if (/d5_immerse\.exe|d5render_ue5/i.test(context)) return 'Engine Crash';
+  if (/\[Callstack\]/i.test(context)) return 'Engine Crash';
+
+  // Stitching crash (sub-type of engine crash)
+  if (/Stitching|StitchingMultiPartImage|FusionPhoto|CaptureActor/i.test(context)) return 'Engine Crash (Stitching)';
+
+  return null;
+}
+
 function parseCrashLog(text) {
   var lines = text.split('\n');
   var crashes = [];
   var current = null;
+  var currentStartIdx = 0;
+
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i];
-    var tsMatch = line.match(/^(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2})/);
-    if (/\b(FATAL|CRASH|Exception|Error|SIGSEGV|SIGABRT|panic|Traceback)\b/i.test(line)) {
+    // Extract timestamp — supports both ISO and D5 bracket format [2023.09.20-06.44.18:283]
+    var tsMatch = line.match(/^(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2})/) ||
+                  line.match(/^\[(\d{4}\.\d{2}\.\d{2}-\d{2}\.\d{2}\.\d{2}[:\.\d]*)\]/);
+
+    // D5-specific crash triggers
+    var isD5Crash = /\bFatal error\b|=== Critical error ===|\bUnhandled Exception\b/i.test(line) ||
+                    /DXGI_ERROR_DEVICE_HUNG|DXGI_ERROR_DEVICE_REMOVED/i.test(line) ||
+                    /GPU.*crash|GPUBreadCrumb/i.test(line);
+
+    // General crash triggers
+    var isGeneralCrash = /\b(FATAL|CRASH|SIGSEGV|SIGABRT|panic|Traceback)\b/i.test(line);
+
+    if (isD5Crash || isGeneralCrash) {
+      // Don't create duplicate crash entries for the same crash event
+      if (current && i - currentStartIdx < 5) {
+        // Merge into current crash — update message if this line is more specific
+        if (isD5Crash) current.message = line.trim();
+        continue;
+      }
+
       current = {
         timestamp: tsMatch ? tsMatch[1] : null,
-        type: (line.match(/\b(FATAL|CRASH|SIGSEGV|SIGABRT|panic|Exception|Error)\b/i) || ['Unknown'])[0],
+        type: null, // will be classified after context is gathered
+        category: null,
         message: line.trim(),
-        stack: []
+        stack: [],
+        _startIdx: i
       };
+      currentStartIdx = i;
       crashes.push(current);
     } else if (current && /^\s+(at |#\d|frame|0x|\.\.\.)/.test(line)) {
       current.stack.push(line.trim());
+    } else if (current && /\[Callstack\]|Callstack/i.test(line)) {
+      // D5 callstack header — keep collecting
+      continue;
+    } else if (current && /^0x[0-9a-f]+\s/i.test(line.trim())) {
+      // D5-style callstack entries: 0x00007ff6c19cc8f8 d5_immerse.exe...
+      current.stack.push(line.trim());
     } else if (current && line.trim() === '') {
+      // Classify before closing
+      if (!current.category) {
+        current.category = classifyCrashType(lines, current._startIdx);
+      }
+      if (!current.type) {
+        current.type = current.category || (line.match(/\b(FATAL|CRASH|SIGSEGV|SIGABRT|panic|Exception|Error)\b/i) || ['Crash'])[0];
+      }
       current = null;
     }
   }
+
+  // Classify any remaining open crash
+  if (current && !current.category) {
+    current.category = classifyCrashType(lines, current._startIdx);
+    if (!current.type) current.type = current.category || 'Crash';
+  }
+
+  // Post-process: classify all crashes that didn't get classified inline
+  crashes.forEach(function(c) {
+    if (!c.category) c.category = classifyCrashType(lines, c._startIdx || 0);
+    if (!c.type || c.type === 'Error' || c.type === 'Crash') {
+      c.type = c.category || c.type || 'Crash';
+    }
+    delete c._startIdx;
+  });
+
   return crashes;
 }
 
@@ -492,20 +575,39 @@ function buildNextSteps(results, totalCrashes, totalErrors, oomCount) {
   var steps = [];
 
   if (totalCrashes > 0) {
-    var crashTypes = {};
+    var crashCategories = {};
     results.filter(function(f) { return f.type === 'crash'; }).forEach(function(f) {
-      f.data.forEach(function(c) { crashTypes[c.type] = true; });
+      f.data.forEach(function(c) {
+        var cat = c.category || c.type || 'Unknown';
+        crashCategories[cat] = (crashCategories[cat] || 0) + 1;
+      });
     });
-    var ctKeys = Object.keys(crashTypes);
+    var catKeys = Object.keys(crashCategories);
 
-    if (ctKeys.some(function(t) { return /SIGSEGV|SIGABRT/i.test(t); })) {
-      steps.push('Investigate signal-based crashes (SIGSEGV/SIGABRT) \u2014 likely a null pointer dereference or memory corruption. Check stack traces and review recent code changes to those code paths.');
+    // D5-specific: GPU crashes
+    if (catKeys.some(function(t) { return /GPU/i.test(t); })) {
+      var gpuCount = catKeys.reduce(function(s, t) { return /GPU/i.test(t) ? s + crashCategories[t] : s; }, 0);
+      steps.push('GPU CRASH (' + gpuCount + 'x) \u2014 DXGI_ERROR_DEVICE_HUNG indicates the GPU timed out or ran out of VRAM. This is typically caused by excessive VRAM usage from too many assets or heavy environmental settings. Reduce texture quality, lower render resolution, or simplify the scene. Forward the log files to the D5 team for further investigation.');
     }
-    if (ctKeys.some(function(t) { return /panic/i.test(t); })) {
+
+    // D5-specific: Engine crashes (stitching)
+    if (catKeys.some(function(t) { return /Stitching/i.test(t); })) {
+      var stitchCount = catKeys.reduce(function(s, t) { return /Stitching/i.test(t) ? s + crashCategories[t] : s; }, 0);
+      steps.push('ENGINE CRASH during stitching (' + stitchCount + 'x) \u2014 An exception occurred during panorama/image stitching (FusionPhoto CaptureActor). This is likely triggered by specific scene configurations. Forward the log files to the D5 team so they can reproduce and fix the root cause.');
+    }
+
+    // D5-specific: Engine crashes (general)
+    if (catKeys.some(function(t) { return /^Engine Crash$/i.test(t); })) {
+      var engCount = crashCategories['Engine Crash'] || 0;
+      steps.push('ENGINE CRASH (' + engCount + 'x) \u2014 An unhandled exception or access violation occurred in the D5 engine. Check the callstack in the crash details to identify which module failed. Forward the log files to the D5 team for analysis.');
+    }
+
+    // Generic crash types (non-D5)
+    if (catKeys.some(function(t) { return /SIGSEGV|SIGABRT/i.test(t); })) {
+      steps.push('Investigate signal-based crashes (SIGSEGV/SIGABRT) \u2014 likely a null pointer dereference or memory corruption. Check stack traces and review recent code changes.');
+    }
+    if (catKeys.some(function(t) { return /panic/i.test(t); })) {
       steps.push('Review panic stack traces \u2014 these are unrecovered runtime errors. Add appropriate error handling or fix the root cause.');
-    }
-    if (ctKeys.some(function(t) { return /Exception|Error/i.test(t); })) {
-      steps.push('Review unhandled exceptions \u2014 add try/catch or fix the conditions that cause them. Check if a dependency or service is unavailable.');
     }
   }
 
@@ -612,13 +714,34 @@ function renderStatBox(value, label) {
   return '<div class="stat-box"><div class="value">' + esc(String(value)) + '</div><div class="label">' + esc(label) + '</div></div>';
 }
 
+function crashTagColor(category) {
+  if (/GPU/i.test(category)) return { bg: '#ff8c0022', fg: '#ff8c00' };
+  if (/Engine/i.test(category)) return { bg: '#ff444422', fg: '#ff4444' };
+  return { bg: '#ff444422', fg: '#ff4444' };
+}
+
 function renderCrashCard(f) {
-  var html = '<div class="card"><div class="card-title"><span>' + esc(f.path) + '</span>';
-  html += '<span class="tag" style="background:#ff444422;color:#ff4444">' + f.data.length + ' crash' + (f.data.length !== 1 ? 'es' : '') + '</span></div>';
-  if (!f.data.length) { html += '<div style="color:#888;font-size:13px">No crashes detected</div>'; }
+  // Group crashes by category for summary
+  var categories = {};
+  f.data.forEach(function(c) {
+    var cat = c.category || c.type || 'Crash';
+    categories[cat] = (categories[cat] || 0) + 1;
+  });
+
+  var html = '<div class="card"><div class="card-title"><span>' + esc(f.path) + '</span><span>';
+  Object.keys(categories).forEach(function(cat) {
+    var col = crashTagColor(cat);
+    html += '<span class="tag" style="background:' + col.bg + ';color:' + col.fg + '">' + categories[cat] + ' ' + esc(cat) + '</span> ';
+  });
+  html += '</span></div>';
+
   f.data.slice(0, 10).forEach(function(c) {
+    var col = crashTagColor(c.category || c.type);
     html += '<div class="crash-item">';
-    html += '<div class="crash-type">' + esc(c.type) + (c.timestamp ? ' @ ' + esc(c.timestamp) : '') + '</div>';
+    html += '<div class="crash-type" style="color:' + col.fg + '">';
+    html += esc(c.category || c.type);
+    if (c.timestamp) html += ' <span style="color:#888;font-weight:400">@ ' + esc(c.timestamp) + '</span>';
+    html += '</div>';
     html += '<div class="crash-msg">' + esc(c.message) + '</div>';
     if (c.stack.length) html += '<pre class="log">' + esc(c.stack.join('\n')) + '</pre>';
     html += '</div>';
@@ -769,20 +892,8 @@ function exportPdf() {
   var severity = currentSeverity;
   var results = currentResults;
   var now = new Date();
-
-  var totalCrashes = results.filter(function(f) { return f.type === 'crash'; }).reduce(function(s, f) { return s + f.data.length; }, 0);
-  var totalErrors = results.reduce(function(sum, f) {
-    if (f.type === 'system') return sum + f.data.severityCounts.ERROR;
-    if (f.type === 'generic') return sum + f.data.errors;
-    if (f.type === 'network') return sum + f.data.errors.length;
-    return sum;
-  }, 0);
-  var totalWarnings = results.reduce(function(sum, f) {
-    if (f.type === 'system') return sum + f.data.severityCounts.WARN;
-    if (f.type === 'generic') return sum + f.data.warnings;
-    return sum;
-  }, 0);
-  var oomCount = results.filter(function(f) { return f.type === 'memory'; }).reduce(function(s, f) { return s + f.data.oomEvents; }, 0);
+  var t = computeTotals(results);
+  var totalCrashes = t.totalCrashes, totalErrors = t.totalErrors, totalWarnings = t.totalWarnings, oomCount = t.oomCount;
 
   // Build styled HTML for print
   var h = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>D5 Diagnostics Report</title><style>';
@@ -875,9 +986,12 @@ function exportPdf() {
     h += '<div class="sep"></div>';
     h += '<h2>Crash Details</h2>';
     crashFiles.forEach(function(f) {
+      h += '<div style="font-weight:600;margin:8px 0 4px;font-size:11px;color:#666">' + esc(f.path) + '</div>';
       f.data.slice(0, 10).forEach(function(c) {
+        var catColor = /GPU/i.test(c.category) ? '#dd6b20' : '#e53e3e';
+        var catLabel = c.category || c.type || 'Crash';
         h += '<div style="margin-bottom:8px">';
-        h += '<div style="font-weight:600;color:#e53e3e;font-size:11px">' + esc(c.type) + (c.timestamp ? ' @ ' + esc(c.timestamp) : '') + '</div>';
+        h += '<div style="font-weight:600;color:' + catColor + ';font-size:11px">' + esc(catLabel) + (c.timestamp ? ' <span style="color:#888;font-weight:400">@ ' + esc(c.timestamp) + '</span>' : '') + '</div>';
         h += '<div style="font-size:11px;color:#444">' + esc(c.message) + '</div>';
         if (c.stack.length) h += '<pre>' + esc(c.stack.join('\n')) + '</pre>';
         h += '</div>';
@@ -902,10 +1016,14 @@ function exportPdf() {
 
   h += '</body></html>';
 
-  var win = window.open('', '_blank');
-  win.document.write(h);
-  win.document.close();
-  setTimeout(function() { win.print(); }, 300);
+  // Download as HTML file — user can open and print/save as PDF
+  var blob = new Blob([h], { type: 'text/html' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'd5-diagnostics-' + (meta.username || 'report') + '-' + Date.now() + '.html';
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function resetApp() {
