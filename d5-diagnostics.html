@@ -328,6 +328,62 @@ function getSeverity(results) {
   return { level: 'low', color: '#44cc44', label: 'Low' };
 }
 
+function detectUsername(results) {
+  var candidates = {};
+  var patterns = [
+    /\/home\/([a-zA-Z0-9._-]+)\//g,
+    /C:\\Users\\([a-zA-Z0-9._-]+)\\/gi,
+    /\/Users\/([a-zA-Z0-9._-]+)\//g,
+    /\buser[=: ]+([a-zA-Z0-9._-]+)/gi,
+    /\busername[=: ]+([a-zA-Z0-9._-]+)/gi,
+    /\blogged in as ([a-zA-Z0-9._-]+)/gi,
+    /\bsession for ([a-zA-Z0-9._-]+)/gi
+  ];
+  var ignore = {root:1, system:1, admin:1, nobody:1, daemon:1, lib:1, bin:1, local:1, share:1, tmp:1, var:1, etc:1, default:1, public:1, '':1};
+
+  results.forEach(function(f) {
+    if (f.type === 'error') return;
+    // Check file paths inside zip for /home/user/ patterns
+    patterns.slice(0, 3).forEach(function(pat) {
+      var m;
+      pat.lastIndex = 0;
+      while ((m = pat.exec(f.path)) !== null) {
+        var name = m[1].toLowerCase();
+        if (!ignore[name]) candidates[name] = (candidates[name] || 0) + 5;
+      }
+    });
+  });
+
+  // Sample content from results - check parsed messages for username hints
+  results.forEach(function(f) {
+    var text = '';
+    if (f.type === 'crash') {
+      f.data.forEach(function(c) { text += c.message + '\n' + c.stack.join('\n') + '\n'; });
+    } else if (f.type === 'system') {
+      f.data.entries.slice(0, 50).forEach(function(e) { text += e.message + '\n'; });
+    } else if (f.type === 'network') {
+      f.data.errors.slice(0, 50).forEach(function(e) { text += e.message + '\n'; });
+    } else if (f.type === 'generic') {
+      text = f.data.sampleErrors.join('\n');
+    }
+
+    patterns.forEach(function(pat) {
+      var m;
+      pat.lastIndex = 0;
+      while ((m = pat.exec(text)) !== null) {
+        var name = m[1].toLowerCase();
+        if (!ignore[name]) candidates[name] = (candidates[name] || 0) + 1;
+      }
+    });
+  });
+
+  var best = null, bestCount = 0;
+  Object.keys(candidates).forEach(function(name) {
+    if (candidates[name] > bestCount) { best = name; bestCount = candidates[name]; }
+  });
+  return best;
+}
+
 function generateTextReport(results, severity, meta) {
   var r = '';
   var line = '────────────────────────────────────────────────────────────\n';
@@ -671,8 +727,8 @@ function switchTab(tab) {
 }
 
 function exportReport() {
-  var username = prompt('Username (whose machine are these logs from?):', '') || '';
-  var meta = { username: username.trim(), sourceFiles: currentSourceFiles };
+  var username = detectUsername(currentResults) || 'unknown';
+  var meta = { username: username, sourceFiles: currentSourceFiles };
   var text = generateTextReport(currentResults, currentSeverity, meta);
   var blob = new Blob([text], { type: 'text/plain' });
   var url = URL.createObjectURL(blob);
