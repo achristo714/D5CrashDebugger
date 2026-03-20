@@ -257,19 +257,37 @@ function parseGenericLog(text) {
 
 function classifyFile(name, content) {
   var lower = name.toLowerCase();
-  if (/crash|fatal|panic|dump/i.test(lower)) return 'crash';
-  if (/memory|mem|heap|oom/i.test(lower)) return 'memory';
-  if (/network|net|conn|http/i.test(lower)) return 'network';
-  if (/\b(FATAL|CRASH|SIGSEGV|SIGABRT|panic)\b/i.test(content.slice(0, 2000))) return 'crash';
-  if (/\b(OOM|OutOfMemory|heap)\b/i.test(content.slice(0, 2000))) return 'memory';
-  if (/system|syslog|main/i.test(lower)) return 'system';
+  var sample = content.slice(0, 4000);
+
+  // Content-based detection first (most reliable)
+  if (/\b(FATAL|CRASH|SIGSEGV|SIGABRT|panic|Traceback)\b/i.test(sample)) return 'crash';
+  if (/\b(OOM|OutOfMemory|out of memory|oom-killer)\b/i.test(sample)) return 'memory';
+
+  // Filename hints, but only if content looks like a log (has timestamps or severity levels)
+  var looksLikeLog = /\d{4}-\d{2}-\d{2}|\b(ERROR|WARN|INFO|DEBUG|FATAL)\b/i.test(sample);
+
+  if (looksLikeLog) {
+    if (/crash|fatal|panic/i.test(lower)) return 'crash';
+    if (/memory|mem|heap|oom/i.test(lower)) return 'memory';
+    if (/network|net|conn|http/i.test(lower)) return 'network';
+    if (/system|syslog|main/i.test(lower)) return 'system';
+  }
+
+  // Fallback: check if it has structured log lines
+  if (/^\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}.*\b(ERROR|WARN|INFO|DEBUG)\b/im.test(sample)) return 'system';
+
   return 'generic';
 }
 
 function parseFile(name, content) {
   var type = classifyFile(name, content);
+  var parsed;
   switch (type) {
-    case 'crash': return { type: 'crash', data: parseCrashLog(content) };
+    case 'crash':
+      parsed = parseCrashLog(content);
+      // If classified as crash but nothing found, fall back to generic
+      if (parsed.length === 0) return { type: 'generic', data: parseGenericLog(content) };
+      return { type: 'crash', data: parsed };
     case 'system': return { type: 'system', data: parseSystemLog(content) };
     case 'memory': return { type: 'memory', data: parseMemoryLog(content) };
     case 'network': return { type: 'network', data: parseNetworkLog(content) };
@@ -278,7 +296,9 @@ function parseFile(name, content) {
 }
 
 function isLogFile(path) {
-  return /\.(log|txt|out|err|crash|dump|trace)$/i.test(path) || /log/i.test(path);
+  // Exclude config/binary files even if path contains "log" or "crash"
+  if (/\.(ini|cfg|config|dmp|exe|dll|pdb|xml|json|png|jpg|dat|db|bin)$/i.test(path)) return false;
+  return /\.(log|txt|out|err|crash|trace|csv)$/i.test(path) || /log/i.test(path);
 }
 
 function processZip(file) {
@@ -384,22 +404,7 @@ function detectUsername(results) {
   return best;
 }
 
-function generateTextReport(results, severity, meta) {
-  var r = '';
-  var line = '────────────────────────────────────────────────────────────\n';
-  var now = new Date();
-
-  // Header
-  r += line;
-  r += '  D5 LOG DIAGNOSTICS REPORT\n';
-  r += '  ' + now.toLocaleDateString() + ' ' + now.toLocaleTimeString() + '\n';
-  if (meta.username) r += '  User:    ' + meta.username + '\n';
-  if (meta.sourceFiles && meta.sourceFiles.length) {
-    r += '  Source:  ' + meta.sourceFiles.join(', ') + '\n';
-  }
-  r += line + '\n';
-
-  // Executive Summary
+function computeTotals(results) {
   var totalCrashes = results.filter(function(f) { return f.type === 'crash'; }).reduce(function(s, f) { return s + f.data.length; }, 0);
   var totalErrors = results.reduce(function(sum, f) {
     if (f.type === 'system') return sum + f.data.severityCounts.ERROR;
@@ -413,17 +418,10 @@ function generateTextReport(results, severity, meta) {
     return sum;
   }, 0);
   var oomCount = results.filter(function(f) { return f.type === 'memory'; }).reduce(function(s, f) { return s + f.data.oomEvents; }, 0);
+  return { totalCrashes: totalCrashes, totalErrors: totalErrors, totalWarnings: totalWarnings, oomCount: oomCount };
+}
 
-  r += 'SUMMARY\n';
-  r += '  Severity:   ' + severity.label.toUpperCase() + '\n';
-  r += '  Files:      ' + results.length + ' analyzed\n';
-  r += '  Crashes:    ' + totalCrashes + '\n';
-  r += '  Errors:     ' + totalErrors + '\n';
-  r += '  Warnings:   ' + totalWarnings + '\n';
-  if (oomCount > 0) r += '  OOM Events: ' + oomCount + '\n';
-  r += '\n';
-
-  // Key Findings
+function buildFindings(results) {
   var findings = [];
 
   results.filter(function(f) { return f.type === 'crash' && f.data.length > 0; }).forEach(function(f) {
@@ -482,21 +480,12 @@ function generateTextReport(results, severity, meta) {
     });
   });
 
-  if (findings.length > 0) {
-    r += 'KEY FINDINGS\n';
-    findings.sort(function(a, b) { return a.priority - b.priority; });
-    findings.forEach(function(f, i) {
-      r += '\n  ' + (i + 1) + '. ' + f.icon + ' ' + f.title + '\n';
-      if (f.detail) r += '     ' + f.detail + '\n';
-      if (f.stack) r += '         ' + f.stack + '\n';
-    });
-    r += '\n';
-  }
+  findings.sort(function(a, b) { return a.priority - b.priority; });
+  return findings;
+}
 
-  // Recommended Next Steps
-  r += line;
-  r += 'RECOMMENDED NEXT STEPS\n\n';
-  var stepNum = 1;
+function buildNextSteps(results, totalCrashes, totalErrors, oomCount) {
+  var steps = [];
 
   if (totalCrashes > 0) {
     var crashTypes = {};
@@ -506,25 +495,19 @@ function generateTextReport(results, severity, meta) {
     var ctKeys = Object.keys(crashTypes);
 
     if (ctKeys.some(function(t) { return /SIGSEGV|SIGABRT/i.test(t); })) {
-      r += '  ' + stepNum++ + '. Investigate signal-based crashes (SIGSEGV/SIGABRT) — likely a\n';
-      r += '     null pointer dereference or memory corruption. Check stack traces\n';
-      r += '     above and review recent code changes to those code paths.\n\n';
+      steps.push('Investigate signal-based crashes (SIGSEGV/SIGABRT) \u2014 likely a null pointer dereference or memory corruption. Check stack traces and review recent code changes to those code paths.');
     }
     if (ctKeys.some(function(t) { return /panic/i.test(t); })) {
-      r += '  ' + stepNum++ + '. Review panic stack traces — these are unrecovered runtime errors.\n';
-      r += '     Add appropriate error handling or fix the root cause.\n\n';
+      steps.push('Review panic stack traces \u2014 these are unrecovered runtime errors. Add appropriate error handling or fix the root cause.');
     }
     if (ctKeys.some(function(t) { return /Exception|Error/i.test(t); })) {
-      r += '  ' + stepNum++ + '. Review unhandled exceptions — add try/catch or fix the conditions\n';
-      r += '     that cause them. Check if a dependency or service is unavailable.\n\n';
+      steps.push('Review unhandled exceptions \u2014 add try/catch or fix the conditions that cause them. Check if a dependency or service is unavailable.');
     }
   }
 
   if (oomCount > 0) {
     var peakMB = results.filter(function(f) { return f.type === 'memory'; }).reduce(function(max, f) { return Math.max(max, f.data.peakUsage); }, 0);
-    r += '  ' + stepNum++ + '. Address out-of-memory conditions (peak: ' + peakMB + ' MB). Check for\n';
-    r += '     memory leaks, unbounded caches, or large data loads. Consider\n';
-    r += '     increasing memory limits or adding backpressure mechanisms.\n\n';
+    steps.push('Address out-of-memory conditions (peak: ' + peakMB + ' MB). Check for memory leaks, unbounded caches, or large data loads. Consider increasing memory limits or adding backpressure mechanisms.');
   }
 
   var netResults = results.filter(function(f) { return f.type === 'network'; });
@@ -532,35 +515,68 @@ function generateTextReport(results, severity, meta) {
   var totalRefused = netResults.reduce(function(s, f) { return s + f.data.connectionRefused; }, 0);
   var totalDns = netResults.reduce(function(s, f) { return s + f.data.dnsFailures; }, 0);
 
-  if (totalRefused > 0) {
-    r += '  ' + stepNum++ + '. Fix connection refused errors (' + totalRefused + 'x) — a downstream\n';
-    r += '     service is down or unreachable. Verify the service is running and\n';
-    r += '     the host/port configuration is correct.\n\n';
-  }
-  if (totalTimeouts > 0) {
-    r += '  ' + stepNum++ + '. Investigate network timeouts (' + totalTimeouts + 'x) — could indicate\n';
-    r += '     slow downstream services or network congestion. Check latency\n';
-    r += '     metrics and consider adjusting timeout values.\n\n';
-  }
-  if (totalDns > 0) {
-    r += '  ' + stepNum++ + '. Resolve DNS failures (' + totalDns + 'x) — check DNS configuration,\n';
-    r += '     /etc/resolv.conf, and ensure hostnames are correct.\n\n';
-  }
+  if (totalRefused > 0) steps.push('Fix connection refused errors (' + totalRefused + 'x) \u2014 a downstream service is down or unreachable. Verify the service is running and the host/port configuration is correct.');
+  if (totalTimeouts > 0) steps.push('Investigate network timeouts (' + totalTimeouts + 'x) \u2014 could indicate slow downstream services or network congestion. Check latency metrics and consider adjusting timeout values.');
+  if (totalDns > 0) steps.push('Resolve DNS failures (' + totalDns + 'x) \u2014 check DNS configuration, /etc/resolv.conf, and ensure hostnames are correct.');
 
   if (totalErrors > 10 && totalCrashes === 0 && oomCount === 0) {
-    r += '  ' + stepNum++ + '. Triage the ' + totalErrors + ' errors across log files. Group by type,\n';
-    r += '     identify the most frequent ones, and fix highest-impact first.\n\n';
+    steps.push('Triage the ' + totalErrors + ' errors across log files. Group by type, identify the most frequent ones, and fix highest-impact first.');
   }
 
-  if (stepNum === 1) {
+  return steps;
+}
+
+function generateTextReport(results, severity, meta) {
+  var r = '';
+  var line = '────────────────────────────────────────────────────────────\n';
+  var now = new Date();
+  var t = computeTotals(results);
+
+  // Header
+  r += line;
+  r += '  D5 LOG DIAGNOSTICS REPORT\n';
+  r += '  ' + now.toLocaleDateString() + ' ' + now.toLocaleTimeString() + '\n';
+  if (meta.username) r += '  User:    ' + meta.username + '\n';
+  if (meta.sourceFiles && meta.sourceFiles.length) {
+    r += '  Source:  ' + meta.sourceFiles.join(', ') + '\n';
+  }
+  r += line + '\n';
+
+  r += 'SUMMARY\n';
+  r += '  Severity:   ' + severity.label.toUpperCase() + '\n';
+  r += '  Files:      ' + results.length + ' analyzed\n';
+  r += '  Crashes:    ' + t.totalCrashes + '\n';
+  r += '  Errors:     ' + t.totalErrors + '\n';
+  r += '  Warnings:   ' + t.totalWarnings + '\n';
+  if (t.oomCount > 0) r += '  OOM Events: ' + t.oomCount + '\n';
+  r += '\n';
+
+  var findings = buildFindings(results);
+  if (findings.length > 0) {
+    r += 'KEY FINDINGS\n';
+    findings.forEach(function(f, i) {
+      r += '\n  ' + (i + 1) + '. ' + f.icon + ' ' + f.title + '\n';
+      if (f.detail) r += '     ' + f.detail + '\n';
+      if (f.stack) r += '         ' + f.stack + '\n';
+    });
+    r += '\n';
+  }
+
+  r += line;
+  r += 'RECOMMENDED NEXT STEPS\n\n';
+  var steps = buildNextSteps(results, t.totalCrashes, t.totalErrors, t.oomCount);
+  if (steps.length > 0) {
+    steps.forEach(function(s, i) {
+      r += '  ' + (i + 1) + '. ' + s + '\n\n';
+    });
+  } else {
     r += '  No critical issues found. System appears healthy.\n';
-    if (totalWarnings > 0) {
-      r += '  Consider reviewing ' + totalWarnings + ' warnings for potential future issues.\n';
+    if (t.totalWarnings > 0) {
+      r += '  Consider reviewing ' + t.totalWarnings + ' warnings for potential future issues.\n';
     }
     r += '\n';
   }
 
-  // File Details appendix
   r += line;
   r += 'FILE DETAILS\n\n';
   results.forEach(function(f) {
@@ -693,7 +709,8 @@ function renderReport(results) {
   html += '<div class="summary-left"><span class="badge" style="background:' + currentSeverity.color + '">' + esc(currentSeverity.label) + '</span>';
   html += '<span class="file-info">' + results.length + ' files analyzed</span></div>';
   html += '<div class="summary-right"><span class="summary-info">' + totalCrashes + ' crashes \u00B7 ' + totalErrors + ' errors</span>';
-  html += '<button class="btn btn-sec" onclick="exportReport()">Export Report</button></div></div>';
+  html += '<button class="btn btn-sec" onclick="exportTxt()">Export TXT</button> ';
+  html += '<button class="btn btn-sec" onclick="exportPdf()">Export PDF</button></div></div>';
 
   // Tabs
   html += '<div class="tab-bar" id="tab-bar">';
@@ -726,10 +743,13 @@ function switchTab(tab) {
   }
 }
 
-function exportReport() {
+function getExportMeta() {
   var username = detectUsername(currentResults) || 'unknown';
-  var meta = { username: username, sourceFiles: currentSourceFiles };
-  var text = generateTextReport(currentResults, currentSeverity, meta);
+  return { username: username, sourceFiles: currentSourceFiles };
+}
+
+function exportTxt() {
+  var text = generateTextReport(currentResults, currentSeverity, getExportMeta());
   var blob = new Blob([text], { type: 'text/plain' });
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
@@ -737,6 +757,149 @@ function exportReport() {
   a.download = 'd5-diagnostics-' + Date.now() + '.txt';
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function exportPdf() {
+  var meta = getExportMeta();
+  var severity = currentSeverity;
+  var results = currentResults;
+  var now = new Date();
+
+  var totalCrashes = results.filter(function(f) { return f.type === 'crash'; }).reduce(function(s, f) { return s + f.data.length; }, 0);
+  var totalErrors = results.reduce(function(sum, f) {
+    if (f.type === 'system') return sum + f.data.severityCounts.ERROR;
+    if (f.type === 'generic') return sum + f.data.errors;
+    if (f.type === 'network') return sum + f.data.errors.length;
+    return sum;
+  }, 0);
+  var totalWarnings = results.reduce(function(sum, f) {
+    if (f.type === 'system') return sum + f.data.severityCounts.WARN;
+    if (f.type === 'generic') return sum + f.data.warnings;
+    return sum;
+  }, 0);
+  var oomCount = results.filter(function(f) { return f.type === 'memory'; }).reduce(function(s, f) { return s + f.data.oomEvents; }, 0);
+
+  // Build styled HTML for print
+  var h = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>D5 Diagnostics Report</title><style>';
+  h += 'body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#222;margin:40px;font-size:12px;line-height:1.5}';
+  h += 'h1{font-size:22px;margin:0 0 2px;color:#111}';
+  h += '.meta{color:#666;font-size:11px;margin-bottom:4px}';
+  h += '.sep{border-top:2px solid #222;margin:16px 0}';
+  h += '.sep-light{border-top:1px solid #ccc;margin:12px 0}';
+  h += 'h2{font-size:15px;margin:16px 0 8px;color:#111;text-transform:uppercase;letter-spacing:0.5px}';
+  h += '.badge{display:inline-block;padding:3px 10px;border-radius:10px;color:#fff;font-weight:700;font-size:11px}';
+  h += '.stats{display:flex;gap:24px;margin:8px 0 16px}';
+  h += '.stat{text-align:center}.stat .val{font-size:22px;font-weight:700;color:#111}.stat .lbl{font-size:10px;color:#888;text-transform:uppercase}';
+  h += '.finding{margin-bottom:10px;padding:8px 12px;border-left:3px solid #ccc;background:#f8f8f8}';
+  h += '.finding.p1{border-left-color:#e53e3e}.finding.p2{border-left-color:#dd6b20}';
+  h += '.finding-title{font-weight:600;font-size:12px}.finding-detail{font-size:11px;color:#555;margin-top:2px}';
+  h += '.step{margin-bottom:10px}.step-num{font-weight:700;color:#2b6cb0}.step-text{color:#333}';
+  h += '.file-row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #eee;font-size:11px}';
+  h += '.file-name{font-weight:600;color:#333}.file-stats{color:#888}';
+  h += 'pre{background:#f5f5f5;padding:8px;border-radius:4px;font-size:10px;overflow:hidden;white-space:pre-wrap;word-break:break-word}';
+  h += 'table{width:100%;border-collapse:collapse;font-size:11px;margin:6px 0}';
+  h += 'th{text-align:left;padding:4px 6px;border-bottom:2px solid #ccc;color:#666;font-size:10px;text-transform:uppercase}';
+  h += 'td{padding:4px 6px;border-bottom:1px solid #eee}';
+  h += '@media print{body{margin:20px}@page{margin:15mm;size:A4}}';
+  h += '</style></head><body>';
+
+  // Header
+  h += '<h1>D5 Log Diagnostics Report</h1>';
+  h += '<div class="meta">' + now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
+  if (meta.username) h += ' &nbsp;|&nbsp; User: <strong>' + esc(meta.username) + '</strong>';
+  if (meta.sourceFiles.length) h += ' &nbsp;|&nbsp; Source: ' + esc(meta.sourceFiles.join(', '));
+  h += '</div>';
+  h += '<div class="sep"></div>';
+
+  // Summary
+  h += '<h2>Summary</h2>';
+  h += '<div><span class="badge" style="background:' + severity.color + '">' + esc(severity.label) + '</span></div>';
+  h += '<div class="stats">';
+  h += '<div class="stat"><div class="val">' + results.length + '</div><div class="lbl">Files</div></div>';
+  h += '<div class="stat"><div class="val">' + totalCrashes + '</div><div class="lbl">Crashes</div></div>';
+  h += '<div class="stat"><div class="val">' + totalErrors + '</div><div class="lbl">Errors</div></div>';
+  h += '<div class="stat"><div class="val">' + totalWarnings + '</div><div class="lbl">Warnings</div></div>';
+  if (oomCount > 0) h += '<div class="stat"><div class="val" style="color:#e53e3e">' + oomCount + '</div><div class="lbl">OOM Events</div></div>';
+  h += '</div>';
+
+  // Key Findings
+  var findings = buildFindings(results);
+  if (findings.length > 0) {
+    h += '<div class="sep-light"></div>';
+    h += '<h2>Key Findings</h2>';
+    findings.forEach(function(f) {
+      h += '<div class="finding p' + f.priority + '">';
+      h += '<div class="finding-title">' + esc(f.icon + ' ' + f.title) + '</div>';
+      if (f.detail) h += '<div class="finding-detail">' + esc(f.detail) + '</div>';
+      if (f.stack) h += '<pre>' + esc(f.stack) + '</pre>';
+      h += '</div>';
+    });
+  }
+
+  // Next Steps
+  var steps = buildNextSteps(results, totalCrashes, totalErrors, oomCount);
+  if (steps.length > 0) {
+    h += '<div class="sep"></div>';
+    h += '<h2>Recommended Next Steps</h2>';
+    steps.forEach(function(s, i) {
+      h += '<div class="step"><span class="step-num">' + (i + 1) + '.</span> <span class="step-text">' + esc(s) + '</span></div>';
+    });
+  }
+
+  // File Details
+  h += '<div class="sep"></div>';
+  h += '<h2>File Details</h2>';
+
+  results.forEach(function(f) {
+    var detail = '';
+    switch (f.type) {
+      case 'crash': detail = f.data.length + ' crashes'; break;
+      case 'system': detail = f.data.total + ' entries, ' + f.data.severityCounts.ERROR + ' errors, ' + f.data.severityCounts.WARN + ' warnings'; break;
+      case 'memory': detail = 'Peak ' + f.data.peakUsage + ' MB, ' + f.data.oomEvents + ' OOM'; break;
+      case 'network': detail = f.data.errors.length + ' errors, ' + f.data.timeouts + ' timeouts'; break;
+      case 'generic': detail = f.data.totalLines + ' lines, ' + f.data.errors + ' errors'; break;
+      default: detail = f.type;
+    }
+    h += '<div class="file-row"><span class="file-name">' + esc(f.path) + ' <span style="color:#aaa;font-weight:400">[' + f.type + ']</span></span><span class="file-stats">' + esc(detail) + '</span></div>';
+  });
+
+  // Crash details appendix
+  var crashFiles = results.filter(function(f) { return f.type === 'crash' && f.data.length > 0; });
+  if (crashFiles.length > 0) {
+    h += '<div class="sep"></div>';
+    h += '<h2>Crash Details</h2>';
+    crashFiles.forEach(function(f) {
+      f.data.slice(0, 10).forEach(function(c) {
+        h += '<div style="margin-bottom:8px">';
+        h += '<div style="font-weight:600;color:#e53e3e;font-size:11px">' + esc(c.type) + (c.timestamp ? ' @ ' + esc(c.timestamp) : '') + '</div>';
+        h += '<div style="font-size:11px;color:#444">' + esc(c.message) + '</div>';
+        if (c.stack.length) h += '<pre>' + esc(c.stack.join('\n')) + '</pre>';
+        h += '</div>';
+      });
+    });
+  }
+
+  // Error details appendix
+  var sysFiles = results.filter(function(f) { return f.type === 'system' && f.data.severityCounts.ERROR > 0; });
+  if (sysFiles.length > 0) {
+    h += '<div class="sep"></div>';
+    h += '<h2>Error Log Details</h2>';
+    sysFiles.forEach(function(f) {
+      h += '<div style="font-weight:600;margin:8px 0 4px">' + esc(f.path) + '</div>';
+      h += '<table><thead><tr><th>Time</th><th>Message</th></tr></thead><tbody>';
+      f.data.entries.filter(function(e) { return e.severity === 'ERROR'; }).slice(0, 15).forEach(function(e) {
+        h += '<tr><td style="white-space:nowrap;color:#888">' + esc(e.timestamp) + '</td><td>' + esc(e.message) + '</td></tr>';
+      });
+      h += '</tbody></table>';
+    });
+  }
+
+  h += '</body></html>';
+
+  var win = window.open('', '_blank');
+  win.document.write(h);
+  win.document.close();
+  setTimeout(function() { win.print(); }, 300);
 }
 
 function resetApp() {
