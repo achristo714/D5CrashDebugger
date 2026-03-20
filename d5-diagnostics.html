@@ -328,7 +328,7 @@ function getSeverity(results) {
   return { level: 'low', color: '#44cc44', label: 'Low' };
 }
 
-function generateTextReport(results, severity) {
+function generateTextReport(results, severity, meta) {
   var r = '';
   var line = '────────────────────────────────────────────────────────────\n';
   var now = new Date();
@@ -337,6 +337,10 @@ function generateTextReport(results, severity) {
   r += line;
   r += '  D5 LOG DIAGNOSTICS REPORT\n';
   r += '  ' + now.toLocaleDateString() + ' ' + now.toLocaleTimeString() + '\n';
+  if (meta.analyst) r += '  Analyst: ' + meta.analyst + '\n';
+  if (meta.sourceFiles && meta.sourceFiles.length) {
+    r += '  Source:  ' + meta.sourceFiles.join(', ') + '\n';
+  }
   r += line + '\n';
 
   // Executive Summary
@@ -606,6 +610,7 @@ function renderFileCard(f) {
 
 var currentResults = null;
 var currentSeverity = null;
+var currentSourceFiles = [];
 var activeTab = 'all';
 
 function renderReport(results) {
@@ -666,7 +671,9 @@ function switchTab(tab) {
 }
 
 function exportReport() {
-  var text = generateTextReport(currentResults, currentSeverity);
+  var analyst = prompt('Your name (for the report):', '') || '';
+  var meta = { analyst: analyst.trim(), sourceFiles: currentSourceFiles };
+  var text = generateTextReport(currentResults, currentSeverity, meta);
   var blob = new Blob([text], { type: 'text/plain' });
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
@@ -679,6 +686,7 @@ function exportReport() {
 function resetApp() {
   currentResults = null;
   currentSeverity = null;
+  currentSourceFiles = [];
   $('report-section').classList.add('hidden');
   $('report-section').innerHTML = '';
   $('upload-section').classList.remove('hidden');
@@ -688,6 +696,8 @@ function resetApp() {
 
 function handleFiles(files) {
   if (!files.length) return;
+  currentSourceFiles = [];
+  for (var j = 0; j < files.length; j++) currentSourceFiles.push(files[j].name);
   $('upload-section').classList.add('hidden');
   $('error-msg').classList.add('hidden');
   $('loading-section').classList.remove('hidden');
