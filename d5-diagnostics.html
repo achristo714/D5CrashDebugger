@@ -329,34 +329,191 @@ function getSeverity(results) {
 }
 
 function generateTextReport(results, severity) {
-  var r = '=== D5 LOG DIAGNOSTICS REPORT ===\n';
-  r += 'Generated: ' + new Date().toISOString() + '\n';
-  r += 'Overall Severity: ' + severity.label + '\n';
-  r += 'Files Analyzed: ' + results.length + '\n\n';
-  results.forEach(function(f) {
-    r += '--- ' + f.path + ' (' + f.type + ') ---\n';
-    switch (f.type) {
-      case 'crash':
-        r += 'Crashes found: ' + f.data.length + '\n';
-        f.data.forEach(function(c, i) {
-          r += '  [' + (i+1) + '] ' + c.type + ': ' + c.message + '\n';
-          c.stack.forEach(function(s) { r += '       ' + s + '\n'; });
-        }); break;
-      case 'system':
-        r += 'Entries: ' + f.data.total + ' | Errors: ' + f.data.severityCounts.ERROR + ' | Warnings: ' + f.data.severityCounts.WARN + '\n';
-        f.data.entries.filter(function(e) { return e.severity === 'ERROR'; }).slice(0, 5).forEach(function(e) {
-          r += '  ERROR ' + e.timestamp + ': ' + e.message + '\n';
-        }); break;
-      case 'memory':
-        r += 'Peak: ' + f.data.peakUsage + ' MB | OOM Events: ' + f.data.oomEvents + ' | Data points: ' + f.data.dataPoints.length + '\n'; break;
-      case 'network':
-        r += 'Errors: ' + f.data.errors.length + ' | Timeouts: ' + f.data.timeouts + ' | Refused: ' + f.data.connectionRefused + ' | DNS: ' + f.data.dnsFailures + '\n'; break;
-      case 'generic':
-        r += 'Lines: ' + f.data.totalLines + ' | Errors: ' + f.data.errors + ' | Warnings: ' + f.data.warnings + '\n';
-        f.data.sampleErrors.slice(0, 5).forEach(function(e) { r += '  ' + e + '\n'; }); break;
+  var r = '';
+  var line = '────────────────────────────────────────────────────────────\n';
+  var now = new Date();
+
+  // Header
+  r += line;
+  r += '  D5 LOG DIAGNOSTICS REPORT\n';
+  r += '  ' + now.toLocaleDateString() + ' ' + now.toLocaleTimeString() + '\n';
+  r += line + '\n';
+
+  // Executive Summary
+  var totalCrashes = results.filter(function(f) { return f.type === 'crash'; }).reduce(function(s, f) { return s + f.data.length; }, 0);
+  var totalErrors = results.reduce(function(sum, f) {
+    if (f.type === 'system') return sum + f.data.severityCounts.ERROR;
+    if (f.type === 'generic') return sum + f.data.errors;
+    if (f.type === 'network') return sum + f.data.errors.length;
+    return sum;
+  }, 0);
+  var totalWarnings = results.reduce(function(sum, f) {
+    if (f.type === 'system') return sum + f.data.severityCounts.WARN;
+    if (f.type === 'generic') return sum + f.data.warnings;
+    return sum;
+  }, 0);
+  var oomCount = results.filter(function(f) { return f.type === 'memory'; }).reduce(function(s, f) { return s + f.data.oomEvents; }, 0);
+
+  r += 'SUMMARY\n';
+  r += '  Severity:   ' + severity.label.toUpperCase() + '\n';
+  r += '  Files:      ' + results.length + ' analyzed\n';
+  r += '  Crashes:    ' + totalCrashes + '\n';
+  r += '  Errors:     ' + totalErrors + '\n';
+  r += '  Warnings:   ' + totalWarnings + '\n';
+  if (oomCount > 0) r += '  OOM Events: ' + oomCount + '\n';
+  r += '\n';
+
+  // Key Findings
+  var findings = [];
+
+  results.filter(function(f) { return f.type === 'crash' && f.data.length > 0; }).forEach(function(f) {
+    var types = {};
+    f.data.forEach(function(c) {
+      var t = c.type || 'Unknown';
+      if (!types[t]) types[t] = { count: 0, first: c };
+      types[t].count++;
+    });
+    Object.keys(types).forEach(function(t) {
+      var info = types[t];
+      findings.push({
+        priority: 1, icon: '[CRASH]',
+        title: t + ' in ' + f.path + ' (' + info.count + 'x)',
+        detail: info.first.message,
+        stack: info.first.stack.slice(0, 3).join('\n         ')
+      });
+    });
+  });
+
+  results.filter(function(f) { return f.type === 'memory' && f.data.oomEvents > 0; }).forEach(function(f) {
+    findings.push({
+      priority: 1, icon: '[MEMORY]',
+      title: 'Out of memory in ' + f.path + ' (' + f.data.oomEvents + ' events)',
+      detail: 'Peak usage: ' + f.data.peakUsage + ' MB'
+    });
+  });
+
+  results.filter(function(f) { return f.type === 'network'; }).forEach(function(f) {
+    var d = f.data;
+    var issues = [];
+    if (d.timeouts > 0) issues.push(d.timeouts + ' timeouts');
+    if (d.connectionRefused > 0) issues.push(d.connectionRefused + ' connection refused');
+    if (d.dnsFailures > 0) issues.push(d.dnsFailures + ' DNS failures');
+    if (issues.length > 0) {
+      findings.push({
+        priority: 2, icon: '[NETWORK]',
+        title: 'Network issues in ' + f.path,
+        detail: issues.join(', ')
+      });
+    }
+  });
+
+  results.filter(function(f) { return f.type === 'system' && f.data.severityCounts.ERROR > 5; }).forEach(function(f) {
+    var topErrors = {};
+    f.data.entries.filter(function(e) { return e.severity === 'ERROR'; }).forEach(function(e) {
+      var key = e.message.slice(0, 80);
+      if (!topErrors[key]) topErrors[key] = 0;
+      topErrors[key]++;
+    });
+    var sorted = Object.keys(topErrors).sort(function(a, b) { return topErrors[b] - topErrors[a]; });
+    findings.push({
+      priority: 2, icon: '[ERRORS]',
+      title: f.data.severityCounts.ERROR + ' errors in ' + f.path,
+      detail: 'Top: ' + sorted.slice(0, 3).map(function(k) { return '"' + k + '" (' + topErrors[k] + 'x)'; }).join(', ')
+    });
+  });
+
+  if (findings.length > 0) {
+    r += 'KEY FINDINGS\n';
+    findings.sort(function(a, b) { return a.priority - b.priority; });
+    findings.forEach(function(f, i) {
+      r += '\n  ' + (i + 1) + '. ' + f.icon + ' ' + f.title + '\n';
+      if (f.detail) r += '     ' + f.detail + '\n';
+      if (f.stack) r += '         ' + f.stack + '\n';
+    });
+    r += '\n';
+  }
+
+  // Recommended Next Steps
+  r += line;
+  r += 'RECOMMENDED NEXT STEPS\n\n';
+  var stepNum = 1;
+
+  if (totalCrashes > 0) {
+    var crashTypes = {};
+    results.filter(function(f) { return f.type === 'crash'; }).forEach(function(f) {
+      f.data.forEach(function(c) { crashTypes[c.type] = true; });
+    });
+    var ctKeys = Object.keys(crashTypes);
+
+    if (ctKeys.some(function(t) { return /SIGSEGV|SIGABRT/i.test(t); })) {
+      r += '  ' + stepNum++ + '. Investigate signal-based crashes (SIGSEGV/SIGABRT) — likely a\n';
+      r += '     null pointer dereference or memory corruption. Check stack traces\n';
+      r += '     above and review recent code changes to those code paths.\n\n';
+    }
+    if (ctKeys.some(function(t) { return /panic/i.test(t); })) {
+      r += '  ' + stepNum++ + '. Review panic stack traces — these are unrecovered runtime errors.\n';
+      r += '     Add appropriate error handling or fix the root cause.\n\n';
+    }
+    if (ctKeys.some(function(t) { return /Exception|Error/i.test(t); })) {
+      r += '  ' + stepNum++ + '. Review unhandled exceptions — add try/catch or fix the conditions\n';
+      r += '     that cause them. Check if a dependency or service is unavailable.\n\n';
+    }
+  }
+
+  if (oomCount > 0) {
+    var peakMB = results.filter(function(f) { return f.type === 'memory'; }).reduce(function(max, f) { return Math.max(max, f.data.peakUsage); }, 0);
+    r += '  ' + stepNum++ + '. Address out-of-memory conditions (peak: ' + peakMB + ' MB). Check for\n';
+    r += '     memory leaks, unbounded caches, or large data loads. Consider\n';
+    r += '     increasing memory limits or adding backpressure mechanisms.\n\n';
+  }
+
+  var netResults = results.filter(function(f) { return f.type === 'network'; });
+  var totalTimeouts = netResults.reduce(function(s, f) { return s + f.data.timeouts; }, 0);
+  var totalRefused = netResults.reduce(function(s, f) { return s + f.data.connectionRefused; }, 0);
+  var totalDns = netResults.reduce(function(s, f) { return s + f.data.dnsFailures; }, 0);
+
+  if (totalRefused > 0) {
+    r += '  ' + stepNum++ + '. Fix connection refused errors (' + totalRefused + 'x) — a downstream\n';
+    r += '     service is down or unreachable. Verify the service is running and\n';
+    r += '     the host/port configuration is correct.\n\n';
+  }
+  if (totalTimeouts > 0) {
+    r += '  ' + stepNum++ + '. Investigate network timeouts (' + totalTimeouts + 'x) — could indicate\n';
+    r += '     slow downstream services or network congestion. Check latency\n';
+    r += '     metrics and consider adjusting timeout values.\n\n';
+  }
+  if (totalDns > 0) {
+    r += '  ' + stepNum++ + '. Resolve DNS failures (' + totalDns + 'x) — check DNS configuration,\n';
+    r += '     /etc/resolv.conf, and ensure hostnames are correct.\n\n';
+  }
+
+  if (totalErrors > 10 && totalCrashes === 0 && oomCount === 0) {
+    r += '  ' + stepNum++ + '. Triage the ' + totalErrors + ' errors across log files. Group by type,\n';
+    r += '     identify the most frequent ones, and fix highest-impact first.\n\n';
+  }
+
+  if (stepNum === 1) {
+    r += '  No critical issues found. System appears healthy.\n';
+    if (totalWarnings > 0) {
+      r += '  Consider reviewing ' + totalWarnings + ' warnings for potential future issues.\n';
     }
     r += '\n';
+  }
+
+  // File Details appendix
+  r += line;
+  r += 'FILE DETAILS\n\n';
+  results.forEach(function(f) {
+    r += '  ' + f.path + ' [' + f.type + ']\n';
+    switch (f.type) {
+      case 'crash': r += '    ' + f.data.length + ' crashes\n'; break;
+      case 'system': r += '    ' + f.data.total + ' entries, ' + f.data.severityCounts.ERROR + ' errors, ' + f.data.severityCounts.WARN + ' warnings\n'; break;
+      case 'memory': r += '    Peak ' + f.data.peakUsage + ' MB, ' + f.data.oomEvents + ' OOM events\n'; break;
+      case 'network': r += '    ' + f.data.errors.length + ' errors, ' + f.data.timeouts + ' timeouts, ' + f.data.connectionRefused + ' refused, ' + f.data.dnsFailures + ' DNS\n'; break;
+      case 'generic': r += '    ' + f.data.totalLines + ' lines, ' + f.data.errors + ' errors, ' + f.data.warnings + ' warnings\n'; break;
+    }
   });
+  r += '\n' + line;
   return r;
 }
 
