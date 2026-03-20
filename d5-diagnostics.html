@@ -337,7 +337,7 @@ function generateTextReport(results, severity, meta) {
   r += line;
   r += '  D5 LOG DIAGNOSTICS REPORT\n';
   r += '  ' + now.toLocaleDateString() + ' ' + now.toLocaleTimeString() + '\n';
-  if (meta.analyst) r += '  Analyst: ' + meta.analyst + '\n';
+  if (meta.username) r += '  User:    ' + meta.username + '\n';
   if (meta.sourceFiles && meta.sourceFiles.length) {
     r += '  Source:  ' + meta.sourceFiles.join(', ') + '\n';
   }
@@ -671,8 +671,8 @@ function switchTab(tab) {
 }
 
 function exportReport() {
-  var analyst = prompt('Your name (for the report):', '') || '';
-  var meta = { analyst: analyst.trim(), sourceFiles: currentSourceFiles };
+  var username = prompt('Username (whose machine are these logs from?):', '') || '';
+  var meta = { username: username.trim(), sourceFiles: currentSourceFiles };
   var text = generateTextReport(currentResults, currentSeverity, meta);
   var blob = new Blob([text], { type: 'text/plain' });
   var url = URL.createObjectURL(blob);
