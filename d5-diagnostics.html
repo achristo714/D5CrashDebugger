@@ -311,7 +311,7 @@ function processZip(file) {
         MiniZip.extract(zip, entry).then(function(content) {
           if (!content.trim()) return null;
           var parsed = parseFile(entry.name, content);
-          return { path: entry.name, size: content.length, type: parsed.type, data: parsed.data };
+          return { path: entry.name, size: content.length, type: parsed.type, data: parsed.data, _raw: content.slice(0, 8000) };
         }).catch(function(e) {
           return { path: entry.name, type: 'error', data: { error: e.message } };
         })
@@ -327,7 +327,7 @@ function processSingleFile(file) {
   return file.text().then(function(content) {
     if (!content.trim()) return [];
     var parsed = parseFile(file.name, content);
-    return [{ path: file.name, size: content.length, type: parsed.type, data: parsed.data }];
+    return [{ path: file.name, size: content.length, type: parsed.type, data: parsed.data, _raw: content.slice(0, 8000) }];
   });
 }
 
@@ -348,60 +348,64 @@ function getSeverity(results) {
   return { level: 'low', color: '#44cc44', label: 'Low' };
 }
 
-function detectUsername(results) {
-  var candidates = {};
-  var patterns = [
-    /\/home\/([a-zA-Z0-9._-]+)\//g,
-    /C:\\Users\\([a-zA-Z0-9._-]+)\\/gi,
-    /\/Users\/([a-zA-Z0-9._-]+)\//g,
-    /\buser[=: ]+([a-zA-Z0-9._-]+)/gi,
-    /\busername[=: ]+([a-zA-Z0-9._-]+)/gi,
-    /\blogged in as ([a-zA-Z0-9._-]+)/gi,
-    /\bsession for ([a-zA-Z0-9._-]+)/gi
+function detectUserInfo(results) {
+  var ignore = {root:1, system:1, admin:1, nobody:1, daemon:1, lib:1, bin:1, local:1, share:1, tmp:1, var:1, etc:1, default:1, public:1, '':1, appdata:1, program:1, windows:1};
+
+  // Path patterns that capture both username and the full path
+  var pathPatterns = [
+    { re: /C:\\Users\\([a-zA-Z0-9._-]+)\\[^\s\n"]*/gi, type: 'win' },
+    { re: /\/home\/([a-zA-Z0-9._-]+)\/[^\s\n"]*/g, type: 'linux' },
+    { re: /\/Users\/([a-zA-Z0-9._-]+)\/[^\s\n"]*/g, type: 'mac' }
   ];
-  var ignore = {root:1, system:1, admin:1, nobody:1, daemon:1, lib:1, bin:1, local:1, share:1, tmp:1, var:1, etc:1, default:1, public:1, '':1};
+
+  var candidates = {};   // username -> count
+  var userPaths = {};     // username -> Set of full paths seen
+
+  function scanText(text) {
+    pathPatterns.forEach(function(pp) {
+      var m;
+      pp.re.lastIndex = 0;
+      while ((m = pp.re.exec(text)) !== null) {
+        var name = m[1];
+        var nameLower = name.toLowerCase();
+        if (ignore[nameLower]) continue;
+        candidates[nameLower] = (candidates[nameLower] || 0) + 1;
+        if (!userPaths[nameLower]) userPaths[nameLower] = {};
+        // Store a cleaned-up version of the path (first ~120 chars)
+        var fullPath = m[0].slice(0, 120);
+        userPaths[nameLower][fullPath] = true;
+      }
+    });
+  }
 
   results.forEach(function(f) {
     if (f.type === 'error') return;
-    // Check file paths inside zip for /home/user/ patterns
-    patterns.slice(0, 3).forEach(function(pat) {
-      var m;
-      pat.lastIndex = 0;
-      while ((m = pat.exec(f.path)) !== null) {
-        var name = m[1].toLowerCase();
-        if (!ignore[name]) candidates[name] = (candidates[name] || 0) + 5;
-      }
-    });
+    // Scan the zip entry path itself
+    scanText(f.path);
+    // Scan raw file content (first 8KB stored during processing)
+    if (f._raw) scanText(f._raw);
   });
 
-  // Sample content from results - check parsed messages for username hints
-  results.forEach(function(f) {
-    var text = '';
-    if (f.type === 'crash') {
-      f.data.forEach(function(c) { text += c.message + '\n' + c.stack.join('\n') + '\n'; });
-    } else if (f.type === 'system') {
-      f.data.entries.slice(0, 50).forEach(function(e) { text += e.message + '\n'; });
-    } else if (f.type === 'network') {
-      f.data.errors.slice(0, 50).forEach(function(e) { text += e.message + '\n'; });
-    } else if (f.type === 'generic') {
-      text = f.data.sampleErrors.join('\n');
-    }
-
-    patterns.forEach(function(pat) {
-      var m;
-      pat.lastIndex = 0;
-      while ((m = pat.exec(text)) !== null) {
-        var name = m[1].toLowerCase();
-        if (!ignore[name]) candidates[name] = (candidates[name] || 0) + 1;
-      }
-    });
-  });
-
+  // Find the most common username
   var best = null, bestCount = 0;
   Object.keys(candidates).forEach(function(name) {
     if (candidates[name] > bestCount) { best = name; bestCount = candidates[name]; }
   });
-  return best;
+
+  if (!best) return { username: null, userPath: null };
+
+  // Pick the most representative path (shortest unique home/user dir)
+  var paths = Object.keys(userPaths[best] || {});
+  // Find the user's home directory
+  var homePath = null;
+  paths.forEach(function(p) {
+    var homeMatch = p.match(/^(C:\\Users\\[^\\]+|\/home\/[^\/]+|\/Users\/[^\/]+)/i);
+    if (homeMatch && (!homePath || homeMatch[1].length < homePath.length)) {
+      homePath = homeMatch[1];
+    }
+  });
+
+  return { username: best, userPath: homePath || paths[0] || null };
 }
 
 function computeTotals(results) {
@@ -537,6 +541,7 @@ function generateTextReport(results, severity, meta) {
   r += '  D5 LOG DIAGNOSTICS REPORT\n';
   r += '  ' + now.toLocaleDateString() + ' ' + now.toLocaleTimeString() + '\n';
   if (meta.username) r += '  User:    ' + meta.username + '\n';
+  if (meta.userPath) r += '  Path:    ' + meta.userPath + '\n';
   if (meta.sourceFiles && meta.sourceFiles.length) {
     r += '  Source:  ' + meta.sourceFiles.join(', ') + '\n';
   }
@@ -744,8 +749,8 @@ function switchTab(tab) {
 }
 
 function getExportMeta() {
-  var username = detectUsername(currentResults) || 'unknown';
-  return { username: username, sourceFiles: currentSourceFiles };
+  var info = detectUserInfo(currentResults);
+  return { username: info.username || 'unknown', userPath: info.userPath, sourceFiles: currentSourceFiles };
 }
 
 function exportTxt() {
@@ -807,7 +812,8 @@ function exportPdf() {
   h += '<h1>D5 Log Diagnostics Report</h1>';
   h += '<div class="meta">' + now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
   if (meta.username) h += ' &nbsp;|&nbsp; User: <strong>' + esc(meta.username) + '</strong>';
-  if (meta.sourceFiles.length) h += ' &nbsp;|&nbsp; Source: ' + esc(meta.sourceFiles.join(', '));
+  if (meta.userPath) h += ' &nbsp;|&nbsp; Path: <code>' + esc(meta.userPath) + '</code>';
+  if (meta.sourceFiles.length) h += '<br>Source: ' + esc(meta.sourceFiles.join(', '));
   h += '</div>';
   h += '<div class="sep"></div>';
 
