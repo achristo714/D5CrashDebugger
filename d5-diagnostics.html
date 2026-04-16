@@ -6,50 +6,79 @@
   <title>D5 Log Diagnostics</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #1a1a1e; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-    .container { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
-    .header { text-align: center; margin-bottom: 32px; }
-    .header h1 { font-size: 28px; font-weight: 700; color: #fff; margin-bottom: 4px; }
-    .header p { font-size: 14px; color: #888; }
-    .dropzone { border: 2px dashed #444; border-radius: 12px; padding: 48px; text-align: center; cursor: pointer; background: #222; transition: all 0.2s; margin-bottom: 24px; }
-    .dropzone.active { border-color: #4a9eff; background: rgba(74,158,255,0.05); }
-    .dropzone .main-text { font-size: 16px; color: #aaa; margin-bottom: 8px; }
-    .dropzone .hint { font-size: 12px; color: #666; }
-    .card { background: #2a2a2e; border-radius: 8px; padding: 16px; margin-bottom: 12px; border: 1px solid #333; }
-    .card-title { font-size: 14px; font-weight: 600; color: #ccc; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
-    .stat-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
-    .stat-box { background: #222; border-radius: 8px; padding: 12px; min-width: 100px; flex: 1; text-align: center; }
-    .stat-box .value { font-size: 24px; font-weight: 700; color: #fff; }
-    .stat-box .label { font-size: 12px; color: #888; margin-top: 2px; }
-    .badge { display: inline-block; padding: 4px 12px; border-radius: 12px; color: #000; font-weight: 700; font-size: 13px; }
-    .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-right: 4px; }
-    .summary-bar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
-    .summary-left { display: flex; align-items: center; gap: 12px; }
-    .summary-right { display: flex; gap: 12px; align-items: center; }
-    .summary-info { font-size: 13px; color: #888; }
-    .tab-bar { display: flex; gap: 4px; border-bottom: 1px solid #333; margin-bottom: 16px; }
-    .tab-bar button { padding: 8px 16px; border: none; border-bottom: 2px solid transparent; background: none; color: #888; cursor: pointer; font-weight: 600; font-size: 13px; }
-    .tab-bar button.active { color: #fff; border-bottom-color: #4a9eff; }
-    .btn { padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; font-size: 13px; }
-    .btn-sec { background: #444; color: #ccc; }
-    .btn-sec:hover { background: #555; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #444; color: #888; font-weight: 600; }
-    td { padding: 6px 8px; border-bottom: 1px solid #333; color: #ccc; word-break: break-word; }
-    td.ts { white-space: nowrap; color: #888; }
-    pre.log { background: #1a1a1e; padding: 12px; border-radius: 6px; overflow: auto; font-size: 12px; color: #aaa; max-height: 200px; white-space: pre-wrap; word-break: break-word; }
-    .error-line { font-size: 12px; color: #ccc; padding: 4px 0; border-bottom: 1px solid #333; }
-    .error-line .ts { color: #888; margin-right: 8px; }
-    .error-msg { color: #ff8888; font-size: 13px; text-align: center; margin-top: 12px; }
-    .loading { text-align: center; padding: 48px; color: #888; }
-    .loading .title { font-size: 18px; margin-bottom: 8px; }
-    .loading .sub { font-size: 13px; }
-    .crash-type { font-size: 13px; color: #ff8888; font-weight: 600; }
-    .crash-msg { font-size: 12px; color: #ccc; margin: 4px 0; }
-    .crash-item { margin-bottom: 12px; }
-    .top-actions { margin-bottom: 16px; text-align: right; }
+    body { background: #111114; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; }
+    .container { max-width: 880px; margin: 0 auto; padding: 32px 20px; }
+    .header { text-align: center; margin-bottom: 40px; padding-top: 20px; }
+    .header h1 { font-size: 32px; font-weight: 700; color: #fff; margin-bottom: 8px; letter-spacing: -0.5px; }
+    .header p { font-size: 15px; color: #888; max-width: 500px; margin: 0 auto; }
+    .dropzone { border: 2px dashed #3a3a44; border-radius: 16px; padding: 60px 40px; text-align: center; cursor: pointer; background: #1a1a1f; transition: all 0.2s; margin-bottom: 24px; }
+    .dropzone:hover { border-color: #555; background: #1e1e24; }
+    .dropzone.active { border-color: #4a9eff; background: rgba(74,158,255,0.06); }
+    .dropzone .drop-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
+    .dropzone .main-text { font-size: 17px; color: #bbb; margin-bottom: 6px; font-weight: 500; }
+    .dropzone .hint { font-size: 13px; color: #555; }
+
+    .card { background: #1c1c22; border-radius: 12px; padding: 20px; margin-bottom: 16px; border: 1px solid #2a2a32; }
+    .card-title { font-size: 13px; font-weight: 600; color: #888; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; word-break: break-all; }
+    .card-heading { font-size: 16px; font-weight: 600; color: #ddd; margin-bottom: 6px; }
+    .card-desc { font-size: 13px; color: #888; margin-bottom: 14px; line-height: 1.6; }
+    .stat-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+    .stat-box { background: #16161b; border-radius: 10px; padding: 14px 12px; min-width: 90px; flex: 1; text-align: center; border: 1px solid #222; }
+    .stat-box .value { font-size: 26px; font-weight: 700; color: #fff; }
+    .stat-box .label { font-size: 11px; color: #666; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .badge { display: inline-block; padding: 5px 14px; border-radius: 20px; color: #000; font-weight: 700; font-size: 13px; }
+    .tag { display: inline-block; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; margin-right: 4px; }
+
+    .section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #555; margin-bottom: 12px; margin-top: 28px; }
+
+    .summary-card { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; padding: 20px 24px; }
+    .summary-left { display: flex; align-items: center; gap: 14px; }
+    .summary-right { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .summary-counts { font-size: 14px; color: #888; margin-right: 8px; }
+    .file-info { font-size: 14px; color: #aaa; }
+
+    .tab-bar { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; }
+    .tab-bar button { padding: 8px 16px; border: 1px solid #2a2a32; border-radius: 8px; background: #16161b; color: #888; cursor: pointer; font-weight: 600; font-size: 13px; transition: all 0.15s; }
+    .tab-bar button:hover { background: #1e1e24; color: #aaa; }
+    .tab-bar button.active { color: #fff; background: #2a2a40; border-color: #4a9eff; }
+
+    .btn { padding: 9px 18px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; font-size: 13px; transition: all 0.15s; }
+    .btn-sec { background: #2a2a32; color: #aaa; }
+    .btn-sec:hover { background: #333; color: #ddd; }
+    .btn-primary { background: #4a9eff; color: #fff; }
+    .btn-primary:hover { background: #5aabff; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+    th { text-align: left; padding: 8px 10px; border-bottom: 1px solid #2a2a32; color: #666; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    td { padding: 8px 10px; border-bottom: 1px solid #1e1e24; color: #bbb; word-break: break-word; }
+    td.ts { white-space: nowrap; color: #666; font-size: 12px; }
+    pre.log { background: #111114; padding: 12px; border-radius: 8px; overflow: auto; font-size: 11px; color: #888; max-height: 180px; white-space: pre-wrap; word-break: break-word; border: 1px solid #222; margin-top: 6px; }
+    .error-line { font-size: 12px; color: #bbb; padding: 6px 0; border-bottom: 1px solid #1e1e24; }
+    .error-line .ts { color: #666; margin-right: 10px; font-size: 11px; }
+    .error-msg { color: #ff8888; font-size: 14px; text-align: center; margin-top: 16px; }
+    .loading { text-align: center; padding: 80px 20px; color: #888; }
+    .loading .title { font-size: 20px; margin-bottom: 8px; color: #aaa; }
+    .loading .sub { font-size: 14px; }
+    .crash-item { margin-bottom: 14px; padding: 12px; background: #16161b; border-radius: 8px; border: 1px solid #222; }
+    .crash-type { font-size: 13px; font-weight: 600; }
+    .crash-msg { font-size: 12px; color: #999; margin: 6px 0; line-height: 1.5; }
+    .top-actions { margin-bottom: 20px; text-align: right; }
     .hidden { display: none; }
-    .file-info { font-size: 14px; color: #ccc; }
+
+    .gpu-info-bar { background: #1a1a2e; border: 1px solid #ff8c0033; border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; font-size: 12px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+    .gpu-info-bar .gi-label { color: #ff8c00; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .gpu-info-bar .gi-value { color: #ccc; }
+    .gpu-info-bar .gi-detail { color: #666; }
+
+    .explanation-box { background: #16161b; border-radius: 8px; padding: 14px 16px; margin: 12px 0; border-left: 3px solid #4a9eff; }
+    .explanation-box .ex-title { font-size: 13px; font-weight: 600; color: #ddd; margin-bottom: 4px; }
+    .explanation-box .ex-text { font-size: 13px; color: #888; line-height: 1.6; }
+
+    .step-card { background: #16161b; border-radius: 10px; padding: 16px 18px; margin-bottom: 10px; border: 1px solid #222; }
+    .step-num { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: #2a2a40; color: #4a9eff; font-size: 12px; font-weight: 700; margin-right: 10px; flex-shrink: 0; }
+    .step-title { font-size: 14px; font-weight: 600; color: #ddd; margin-bottom: 6px; display: flex; align-items: center; }
+    .step-text { font-size: 13px; color: #888; line-height: 1.6; padding-left: 34px; }
+    .step-why { font-size: 12px; color: #666; margin-top: 6px; padding-left: 34px; font-style: italic; }
   </style>
 </head>
 <body>
@@ -60,8 +89,9 @@
     </div>
     <div id="upload-section">
       <div class="dropzone" id="dropzone">
-        <div class="main-text">Drag &amp; drop log files or zip archives</div>
-        <div class="hint">.zip, .log, .txt, .out, .err, .crash, .dump, .trace</div>
+        <div class="drop-icon">&#128193;</div>
+        <div class="main-text">Drop your D5 log files here</div>
+        <div class="hint">Supports .zip archives, .log, .txt, and other log formats &mdash; or click to browse</div>
         <input type="file" id="file-input" multiple accept=".zip,.log,.txt,.out,.err,.crash,.dump,.trace" style="display:none" />
       </div>
       <div id="error-msg" class="error-msg hidden"></div>
@@ -566,19 +596,19 @@ function buildFindings(results) {
     });
     Object.keys(types).forEach(function(t) {
       var info = types[t];
+      var friendlyType = /GPU/i.test(t) ? 'Graphics card crash' : /Stitching/i.test(t) ? 'Panorama stitching crash' : /Engine/i.test(t) ? 'D5 engine crash' : 'Application crash';
       var detail = info.first.message;
-      // Add GPU adapter info to GPU crash findings
       if (/GPU/i.test(t) && info.first.gpuInfo) {
         var gi = info.first.gpuInfo;
         var parts = [];
-        if (gi.adapter) parts.push('Adapter: ' + gi.adapter);
+        if (gi.adapter) parts.push('GPU: ' + gi.adapter);
         if (gi.vramMB) parts.push('VRAM: ' + (gi.vramMB >= 1024 ? (gi.vramMB / 1024).toFixed(0) + ' GB' : gi.vramMB + ' MB'));
         if (gi.driverVersion) parts.push('Driver: ' + gi.driverVersion);
         if (parts.length) detail += '\n' + parts.join(' | ');
       }
       findings.push({
-        priority: 1, icon: '[CRASH]',
-        title: t + ' in ' + f.path + ' (' + info.count + 'x)',
+        priority: 1, icon: 'Crash',
+        title: friendlyType + ' (' + info.count + 'x) in ' + f.path,
         detail: detail,
         stack: info.first.stack.slice(0, 3).join('\n         ')
       });
@@ -587,22 +617,22 @@ function buildFindings(results) {
 
   results.filter(function(f) { return f.type === 'memory' && f.data.oomEvents > 0; }).forEach(function(f) {
     findings.push({
-      priority: 1, icon: '[MEMORY]',
-      title: 'Out of memory in ' + f.path + ' (' + f.data.oomEvents + ' events)',
-      detail: 'Peak usage: ' + f.data.peakUsage + ' MB'
+      priority: 1, icon: 'Memory',
+      title: 'Ran out of memory (' + f.data.oomEvents + ' time' + (f.data.oomEvents !== 1 ? 's' : '') + ')',
+      detail: 'The application used up all available memory. Peak usage: ' + f.data.peakUsage + ' MB'
     });
   });
 
   results.filter(function(f) { return f.type === 'network'; }).forEach(function(f) {
     var d = f.data;
     var issues = [];
-    if (d.timeouts > 0) issues.push(d.timeouts + ' timeouts');
-    if (d.connectionRefused > 0) issues.push(d.connectionRefused + ' connection refused');
-    if (d.dnsFailures > 0) issues.push(d.dnsFailures + ' DNS failures');
+    if (d.timeouts > 0) issues.push(d.timeouts + ' timeout' + (d.timeouts !== 1 ? 's' : ''));
+    if (d.connectionRefused > 0) issues.push(d.connectionRefused + ' refused connection' + (d.connectionRefused !== 1 ? 's' : ''));
+    if (d.dnsFailures > 0) issues.push(d.dnsFailures + ' DNS failure' + (d.dnsFailures !== 1 ? 's' : ''));
     if (issues.length > 0) {
       findings.push({
-        priority: 2, icon: '[NETWORK]',
-        title: 'Network issues in ' + f.path,
+        priority: 2, icon: 'Network',
+        title: 'Network problems detected in ' + f.path,
         detail: issues.join(', ')
       });
     }
@@ -617,9 +647,9 @@ function buildFindings(results) {
     });
     var sorted = Object.keys(topErrors).sort(function(a, b) { return topErrors[b] - topErrors[a]; });
     findings.push({
-      priority: 2, icon: '[ERRORS]',
-      title: f.data.severityCounts.ERROR + ' errors in ' + f.path,
-      detail: 'Top: ' + sorted.slice(0, 3).map(function(k) { return '"' + k + '" (' + topErrors[k] + 'x)'; }).join(', ')
+      priority: 2, icon: 'Errors',
+      title: f.data.severityCounts.ERROR + ' errors found in ' + f.path,
+      detail: 'Most frequent: ' + sorted.slice(0, 3).map(function(k) { return '"' + k + '" (' + topErrors[k] + 'x)'; }).join(', ')
     });
   });
 
@@ -640,47 +670,88 @@ function buildNextSteps(results, totalCrashes, totalErrors, oomCount) {
     });
     var catKeys = Object.keys(crashCategories);
 
-    // D5-specific: GPU crashes — include adapter info if available
     if (catKeys.some(function(t) { return /GPU/i.test(t); })) {
       var gpuCount = catKeys.reduce(function(s, t) { return /GPU/i.test(t) ? s + crashCategories[t] : s; }, 0);
-      // Find GPU info from any crash file
       var gpuInfo = null;
       results.filter(function(f) { return f.type === 'crash'; }).some(function(f) {
         if (f.data.gpuInfo) { gpuInfo = f.data.gpuInfo; return true; }
         return f.data.some(function(c) { if (c.gpuInfo) { gpuInfo = c.gpuInfo; return true; } return false; });
       });
-      var gpuDetail = 'GPU CRASH (' + gpuCount + 'x)';
-      if (gpuInfo && gpuInfo.adapter) gpuDetail += ' on ' + gpuInfo.adapter;
-      if (gpuInfo && gpuInfo.vramMB) gpuDetail += ' (' + (gpuInfo.vramMB >= 1024 ? (gpuInfo.vramMB / 1024).toFixed(0) + ' GB VRAM' : gpuInfo.vramMB + ' MB VRAM') + ')';
-      if (gpuInfo && gpuInfo.driverVersion) gpuDetail += ', driver ' + gpuInfo.driverVersion;
-      gpuDetail += ' \u2014 DXGI_ERROR_DEVICE_HUNG indicates the GPU timed out or ran out of VRAM. This is typically caused by excessive VRAM usage from too many assets or heavy environmental settings. Reduce texture quality, lower render resolution, or simplify the scene. Forward the log files to the D5 team for further investigation.';
-      steps.push(gpuDetail);
+      var gpuTitle = 'GPU Crash Detected (' + gpuCount + 'x)';
+      if (gpuInfo && gpuInfo.adapter) gpuTitle += ' \u2014 ' + gpuInfo.adapter;
+      steps.push({
+        title: gpuTitle,
+        text: 'The graphics card stopped responding while D5 was rendering. This error (DXGI_ERROR_DEVICE_HUNG) means the GPU either ran out of video memory (VRAM) or took too long to complete a rendering task.' +
+          (gpuInfo && gpuInfo.vramMB ? ' This system has ' + (gpuInfo.vramMB >= 1024 ? (gpuInfo.vramMB / 1024).toFixed(0) + ' GB' : gpuInfo.vramMB + ' MB') + ' of VRAM.' : ''),
+        actions: [
+          'Try reducing texture quality or render resolution in D5 settings',
+          'Simplify the scene by hiding or removing heavy assets temporarily',
+          'Make sure your GPU drivers are up to date' + (gpuInfo && gpuInfo.driverVersion ? ' (current: ' + gpuInfo.driverVersion + ')' : ''),
+          'Forward these log files to the D5 support team for further analysis'
+        ],
+        why: 'GPU crashes are the most common type of D5 crash. They happen when the scene demands more from the graphics card than it can handle.'
+      });
     }
 
-    // D5-specific: Engine crashes (stitching)
     if (catKeys.some(function(t) { return /Stitching/i.test(t); })) {
       var stitchCount = catKeys.reduce(function(s, t) { return /Stitching/i.test(t) ? s + crashCategories[t] : s; }, 0);
-      steps.push('ENGINE CRASH during stitching (' + stitchCount + 'x) \u2014 An exception occurred during panorama/image stitching (FusionPhoto CaptureActor). This is likely triggered by specific scene configurations. Forward the log files to the D5 team so they can reproduce and fix the root cause.');
+      steps.push({
+        title: 'Crash During Panorama Stitching (' + stitchCount + 'x)',
+        text: 'D5 crashed while combining multiple camera captures into a single panoramic image. The stitching engine (FusionPhoto/CaptureActor) encountered an error it could not recover from.',
+        actions: [
+          'Try rendering the panorama at a lower resolution first',
+          'Check if the scene has extremely complex geometry near the camera',
+          'Forward these log files to the D5 team so they can reproduce and fix this'
+        ],
+        why: 'Stitching crashes are usually triggered by specific scene setups. The D5 team needs the logs to identify what combination of settings caused the issue.'
+      });
     }
 
-    // D5-specific: Engine crashes (general)
     if (catKeys.some(function(t) { return /^Engine Crash$/i.test(t); })) {
       var engCount = crashCategories['Engine Crash'] || 0;
-      steps.push('ENGINE CRASH (' + engCount + 'x) \u2014 An unhandled exception or access violation occurred in the D5 engine. Check the callstack in the crash details to identify which module failed. Forward the log files to the D5 team for analysis.');
+      steps.push({
+        title: 'D5 Engine Crash (' + engCount + 'x)',
+        text: 'The D5 application encountered an internal error (access violation or unhandled exception) and had to shut down. This is a software bug in the engine, not something caused by your hardware.',
+        actions: [
+          'Note what you were doing right before the crash (this helps the D5 team)',
+          'Check if the crash happens consistently with the same project or action',
+          'Forward these log files to the D5 support team for investigation'
+        ],
+        why: 'Engine crashes are bugs in the D5 software itself. The callstack information in the crash details helps developers pinpoint exactly where the error occurred.'
+      });
     }
 
-    // Generic crash types (non-D5)
     if (catKeys.some(function(t) { return /SIGSEGV|SIGABRT/i.test(t); })) {
-      steps.push('Investigate signal-based crashes (SIGSEGV/SIGABRT) \u2014 likely a null pointer dereference or memory corruption. Check stack traces and review recent code changes.');
+      steps.push({
+        title: 'System Signal Crash',
+        text: 'A low-level system signal (SIGSEGV/SIGABRT) was detected, which usually means the application tried to access invalid memory.',
+        actions: ['Review the stack trace in the crash details', 'Check for recent software updates that may have introduced the issue'],
+        why: 'These crashes indicate a serious software bug that needs developer attention.'
+      });
     }
+
     if (catKeys.some(function(t) { return /panic/i.test(t); })) {
-      steps.push('Review panic stack traces \u2014 these are unrecovered runtime errors. Add appropriate error handling or fix the root cause.');
+      steps.push({
+        title: 'Application Panic',
+        text: 'An unrecoverable runtime error was detected. The application stopped itself because it reached a state it could not handle safely.',
+        actions: ['Review the panic stack trace for the failing component', 'Forward logs to the development team'],
+        why: 'Panics are safety mechanisms that prevent worse problems like data corruption.'
+      });
     }
   }
 
   if (oomCount > 0) {
     var peakMB = results.filter(function(f) { return f.type === 'memory'; }).reduce(function(max, f) { return Math.max(max, f.data.peakUsage); }, 0);
-    steps.push('Address out-of-memory conditions (peak: ' + peakMB + ' MB). Check for memory leaks, unbounded caches, or large data loads. Consider increasing memory limits or adding backpressure mechanisms.');
+    steps.push({
+      title: 'Out of Memory (' + oomCount + ' event' + (oomCount !== 1 ? 's' : '') + ')',
+      text: 'D5 tried to use more system memory (RAM) than was available. Peak memory usage reached ' + peakMB + ' MB. When the system runs out of memory, applications crash.',
+      actions: [
+        'Close other memory-heavy applications before running D5',
+        'Reduce scene complexity or number of assets loaded simultaneously',
+        'Consider upgrading system RAM if this happens frequently'
+      ],
+      why: 'Large D5 scenes with many high-resolution textures and complex models can consume significant amounts of RAM.'
+    });
   }
 
   var netResults = results.filter(function(f) { return f.type === 'network'; });
@@ -688,15 +759,45 @@ function buildNextSteps(results, totalCrashes, totalErrors, oomCount) {
   var totalRefused = netResults.reduce(function(s, f) { return s + f.data.connectionRefused; }, 0);
   var totalDns = netResults.reduce(function(s, f) { return s + f.data.dnsFailures; }, 0);
 
-  if (totalRefused > 0) steps.push('Fix connection refused errors (' + totalRefused + 'x) \u2014 a downstream service is down or unreachable. Verify the service is running and the host/port configuration is correct.');
-  if (totalTimeouts > 0) steps.push('Investigate network timeouts (' + totalTimeouts + 'x) \u2014 could indicate slow downstream services or network congestion. Check latency metrics and consider adjusting timeout values.');
-  if (totalDns > 0) steps.push('Resolve DNS failures (' + totalDns + 'x) \u2014 check DNS configuration, /etc/resolv.conf, and ensure hostnames are correct.');
+  if (totalRefused > 0) steps.push({
+    title: 'Connection Refused (' + totalRefused + 'x)',
+    text: 'D5 tried to connect to an online service but the connection was refused. This usually means the service is temporarily down or a firewall is blocking the connection.',
+    actions: ['Check your internet connection', 'Verify firewall or antivirus is not blocking D5', 'Try again later in case the service was temporarily unavailable'],
+    why: 'D5 connects to online services for asset downloads, license verification, and updates.'
+  });
+
+  if (totalTimeouts > 0) steps.push({
+    title: 'Network Timeouts (' + totalTimeouts + 'x)',
+    text: 'D5 waited too long for a response from an online service. This can happen with slow or unstable internet connections.',
+    actions: ['Check your internet connection speed and stability', 'Try connecting to a different network if available'],
+    why: 'Timeouts mean the server did not respond within the expected time window.'
+  });
+
+  if (totalDns > 0) steps.push({
+    title: 'DNS Resolution Failures (' + totalDns + 'x)',
+    text: 'D5 could not look up the address of an online service. DNS translates website names into network addresses.',
+    actions: ['Check your internet connection', 'Try restarting your router', 'Contact your network administrator if on a corporate network'],
+    why: 'DNS failures prevent D5 from reaching any online services, even if your internet is otherwise working.'
+  });
 
   if (totalErrors > 10 && totalCrashes === 0 && oomCount === 0) {
-    steps.push('Triage the ' + totalErrors + ' errors across log files. Group by type, identify the most frequent ones, and fix highest-impact first.');
+    steps.push({
+      title: 'Multiple Errors Detected (' + totalErrors + ' total)',
+      text: 'While no crashes were found, a significant number of errors appeared across the log files. These may indicate underlying issues that could eventually lead to problems.',
+      actions: ['Review the error details in the file cards below', 'Look for repeating patterns that might point to a single root cause', 'Forward logs to D5 support if errors are affecting your workflow'],
+      why: 'A high error count can signal configuration problems, compatibility issues, or intermittent failures.'
+    });
   }
 
   return steps;
+}
+
+function formatStepAsText(step) {
+  var text = step.title + ' \u2014 ' + step.text;
+  if (step.actions && step.actions.length) {
+    text += '\n     Actions: ' + step.actions.join('; ');
+  }
+  return text;
 }
 
 function generateTextReport(results, severity, meta) {
@@ -729,7 +830,7 @@ function generateTextReport(results, severity, meta) {
   if (findings.length > 0) {
     r += 'KEY FINDINGS\n';
     findings.forEach(function(f, i) {
-      r += '\n  ' + (i + 1) + '. ' + f.icon + ' ' + f.title + '\n';
+      r += '\n  ' + (i + 1) + '. [' + f.icon + '] ' + f.title + '\n';
       if (f.detail) r += '     ' + f.detail + '\n';
       if (f.stack) r += '         ' + f.stack + '\n';
     });
@@ -741,7 +842,7 @@ function generateTextReport(results, severity, meta) {
   var steps = buildNextSteps(results, t.totalCrashes, t.totalErrors, t.oomCount);
   if (steps.length > 0) {
     steps.forEach(function(s, i) {
-      r += '  ' + (i + 1) + '. ' + s + '\n\n';
+      r += '  ' + (i + 1) + '. ' + formatStepAsText(s) + '\n\n';
     });
   } else {
     r += '  No critical issues found. System appears healthy.\n';
@@ -788,7 +889,6 @@ function crashTagColor(category) {
 }
 
 function renderCrashCard(f) {
-  // Group crashes by category for summary
   var categories = {};
   f.data.forEach(function(c) {
     var cat = c.category || c.type || 'Crash';
@@ -802,16 +902,28 @@ function renderCrashCard(f) {
   });
   html += '</span></div>';
 
-  // Show GPU adapter info if available and this file has GPU crashes
-  var hasGpuCrash = Object.keys(categories).some(function(c) { return /GPU/i.test(c); });
+  var hasGpu = Object.keys(categories).some(function(c) { return /GPU/i.test(c); });
+  var hasStitching = Object.keys(categories).some(function(c) { return /Stitching/i.test(c); });
+
+  if (hasGpu) {
+    html += '<div class="card-heading">Graphics Card Issue Detected</div>';
+    html += '<div class="card-desc">D5 reported a problem with the GPU (graphics card). This usually means the graphics card ran out of memory or became unresponsive while rendering. This is one of the most common D5 crash types.</div>';
+  } else if (hasStitching) {
+    html += '<div class="card-heading">Crash During Image Stitching</div>';
+    html += '<div class="card-desc">D5 crashed while combining multiple images into a panorama. This is typically caused by specific scene configurations that trigger an error in the stitching process.</div>';
+  } else {
+    html += '<div class="card-heading">Application Crash Detected</div>';
+    html += '<div class="card-desc">D5 encountered an unexpected error that caused it to stop working. The details below can help identify the root cause.</div>';
+  }
+
   var gpuInfo = f.data.gpuInfo || (f.data.length > 0 && f.data[0].gpuInfo);
-  if (hasGpuCrash && gpuInfo) {
-    html += '<div style="background:#1a1a2e;border:1px solid #ff8c0044;border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:12px">';
-    html += '<span style="color:#ff8c00;font-weight:600">GPU Adapter</span>';
-    if (gpuInfo.adapter) html += '<span style="color:#ccc;margin-left:12px">' + esc(gpuInfo.adapter) + '</span>';
-    if (gpuInfo.vramMB) html += '<span style="color:#888;margin-left:12px">VRAM: ' + (gpuInfo.vramMB >= 1024 ? (gpuInfo.vramMB / 1024).toFixed(1) + ' GB' : gpuInfo.vramMB + ' MB') + '</span>';
-    if (gpuInfo.driverVersion) html += '<span style="color:#888;margin-left:12px">Driver: ' + esc(gpuInfo.driverVersion) + '</span>';
-    if (gpuInfo.featureLevel) html += '<span style="color:#888;margin-left:12px">D3D FL: ' + esc(gpuInfo.featureLevel) + '</span>';
+  if (hasGpu && gpuInfo) {
+    html += '<div class="gpu-info-bar">';
+    html += '<span class="gi-label">GPU Info</span>';
+    if (gpuInfo.adapter) html += '<span class="gi-value">' + esc(gpuInfo.adapter) + '</span>';
+    if (gpuInfo.vramMB) html += '<span class="gi-detail">VRAM: ' + (gpuInfo.vramMB >= 1024 ? (gpuInfo.vramMB / 1024).toFixed(1) + ' GB' : gpuInfo.vramMB + ' MB') + '</span>';
+    if (gpuInfo.driverVersion) html += '<span class="gi-detail">Driver: ' + esc(gpuInfo.driverVersion) + '</span>';
+    if (gpuInfo.featureLevel) html += '<span class="gi-detail">D3D: ' + esc(gpuInfo.featureLevel) + '</span>';
     html += '</div>';
   }
 
@@ -832,6 +944,8 @@ function renderCrashCard(f) {
 function renderSystemCard(f) {
   var d = f.data;
   var html = '<div class="card"><div class="card-title"><span>' + esc(f.path) + '</span></div>';
+  html += '<div class="card-heading">System Log</div>';
+  html += '<div class="card-desc">This file contains structured application messages. ' + (d.severityCounts.ERROR > 0 ? d.severityCounts.ERROR + ' error' + (d.severityCounts.ERROR !== 1 ? 's' : '') + ' found that may need attention.' : 'No errors found.') + '</div>';
   html += '<div class="stat-row">' + renderStatBox(d.total, 'Total') + renderStatBox(d.severityCounts.ERROR, 'Errors') + renderStatBox(d.severityCounts.WARN, 'Warnings') + '</div>';
   if (d.severityCounts.ERROR > 0) {
     html += '<div style="font-size:12px;color:#888;margin-bottom:4px">Recent errors:</div>';
@@ -847,14 +961,30 @@ function renderSystemCard(f) {
 function renderMemoryCard(f) {
   var d = f.data;
   var html = '<div class="card"><div class="card-title"><span>' + esc(f.path) + '</span></div>';
+  html += '<div class="card-heading">Memory Usage</div>';
+  if (d.oomEvents > 0) {
+    html += '<div class="card-desc">D5 ran out of available memory ' + d.oomEvents + ' time' + (d.oomEvents !== 1 ? 's' : '') + '. Out-of-memory events cause crashes and are usually caused by very large scenes or too many high-resolution assets loaded at once.</div>';
+  } else {
+    html += '<div class="card-desc">This file tracks how much memory D5 used over time. Peak usage reached ' + d.peakUsage + ' MB. No out-of-memory events were detected.</div>';
+  }
   html += '<div class="stat-row">' + renderStatBox(d.peakUsage + ' MB', 'Peak Usage') + renderStatBox(d.oomEvents, 'OOM Events') + renderStatBox(d.dataPoints.length, 'Data Points') + '</div>';
-  if (d.oomEvents > 0) html += '<span class="tag" style="background:#ff444422;color:#ff4444">OOM Detected!</span>';
+  if (d.oomEvents > 0) html += '<span class="tag" style="background:#ff444422;color:#ff4444">Out of Memory Detected</span>';
   return html + '</div>';
 }
 
 function renderNetworkCard(f) {
   var d = f.data;
   var html = '<div class="card"><div class="card-title"><span>' + esc(f.path) + '</span></div>';
+  html += '<div class="card-heading">Network Activity</div>';
+  var issues = [];
+  if (d.timeouts > 0) issues.push(d.timeouts + ' timeout' + (d.timeouts !== 1 ? 's' : ''));
+  if (d.connectionRefused > 0) issues.push(d.connectionRefused + ' refused connection' + (d.connectionRefused !== 1 ? 's' : ''));
+  if (d.dnsFailures > 0) issues.push(d.dnsFailures + ' DNS failure' + (d.dnsFailures !== 1 ? 's' : ''));
+  if (issues.length > 0) {
+    html += '<div class="card-desc">Network problems were detected: ' + issues.join(', ') + '. These can indicate internet connectivity issues, firewall restrictions, or D5 online services being temporarily unavailable.</div>';
+  } else {
+    html += '<div class="card-desc">This file contains network-related log entries. No significant connection problems were found.</div>';
+  }
   html += '<div class="stat-row">' + renderStatBox(d.errors.length, 'Errors') + renderStatBox(d.timeouts, 'Timeouts') + renderStatBox(d.connectionRefused, 'Refused') + renderStatBox(d.dnsFailures, 'DNS Failures') + '</div>';
   if (d.errors.length > 0) {
     html += '<div style="font-size:12px;color:#888;margin-bottom:4px">Recent errors:</div>';
@@ -870,6 +1000,12 @@ function renderNetworkCard(f) {
 function renderGenericCard(f) {
   var d = f.data;
   var html = '<div class="card"><div class="card-title"><span>' + esc(f.path) + '</span></div>';
+  html += '<div class="card-heading">Log File</div>';
+  if (d.errors > 0) {
+    html += '<div class="card-desc">This log contains ' + d.totalLines + ' lines with ' + d.errors + ' error' + (d.errors !== 1 ? 's' : '') + ' and ' + d.warnings + ' warning' + (d.warnings !== 1 ? 's' : '') + '. Sample errors shown below.</div>';
+  } else {
+    html += '<div class="card-desc">This log contains ' + d.totalLines + ' lines. No errors were detected.</div>';
+  }
   html += '<div class="stat-row">' + renderStatBox(d.totalLines, 'Lines') + renderStatBox(d.errors, 'Errors') + renderStatBox(d.warnings, 'Warnings') + '</div>';
   if (d.sampleErrors.length > 0) html += '<pre class="log">' + esc(d.sampleErrors.slice(0, 5).join('\n')) + '</pre>';
   return html + '</div>';
@@ -902,30 +1038,71 @@ function renderReport(results) {
   var seen = {};
   results.forEach(function(r) { if (!seen[r.type]) { seen[r.type] = true; types.push(r.type); } });
 
-  var totalCrashes = results.filter(function(r) { return r.type === 'crash'; }).reduce(function(s, r) { return s + r.data.length; }, 0);
-  var totalErrors = results.reduce(function(sum, r) {
-    if (r.type === 'system') return sum + r.data.severityCounts.ERROR;
-    if (r.type === 'generic') return sum + r.data.errors;
-    if (r.type === 'network') return sum + r.data.errors.length;
-    return sum;
-  }, 0);
+  var t = computeTotals(results);
 
   var html = '<div class="top-actions"><button class="btn btn-sec" onclick="resetApp()">Analyze New Files</button></div>';
 
-  // Summary bar
-  html += '<div class="card summary-bar">';
+  // Summary card
+  html += '<div class="card summary-card">';
   html += '<div class="summary-left"><span class="badge" style="background:' + currentSeverity.color + '">' + esc(currentSeverity.label) + '</span>';
-  html += '<span class="file-info">' + results.length + ' files analyzed</span></div>';
-  html += '<div class="summary-right"><span class="summary-info">' + totalCrashes + ' crashes \u00B7 ' + totalErrors + ' errors</span>';
+  html += '<span class="file-info">' + results.length + ' file' + (results.length !== 1 ? 's' : '') + ' analyzed</span></div>';
+  html += '<div class="summary-right"><span class="summary-counts">' + t.totalCrashes + ' crash' + (t.totalCrashes !== 1 ? 'es' : '') + ' &middot; ' + t.totalErrors + ' error' + (t.totalErrors !== 1 ? 's' : '') + '</span>';
   html += '<button class="btn btn-sec" onclick="exportTxt()">Export TXT</button> ';
-  html += '<button class="btn btn-sec" onclick="exportPdf()">Export PDF</button></div></div>';
+  html += '<button class="btn btn-primary" onclick="exportPdf()">Export Report</button></div></div>';
+
+  // User info if detected
+  var userInfo = detectUserInfo(results);
+  if (userInfo.username) {
+    html += '<div style="font-size:13px;color:#888;margin-bottom:16px;padding:0 4px">Device user: <strong style="color:#bbb">' + esc(userInfo.username) + '</strong>';
+    if (userInfo.userPath) html += ' &mdash; <code style="font-size:12px;color:#666">' + esc(userInfo.userPath) + '</code>';
+    html += '</div>';
+  }
+
+  // Key Findings section
+  var findings = buildFindings(results);
+  if (findings.length > 0) {
+    html += '<div class="section-label">What We Found</div>';
+    findings.forEach(function(f) {
+      var borderColor = f.priority === 1 ? '#ff4444' : '#ff8c00';
+      html += '<div class="explanation-box" style="border-left-color:' + borderColor + '">';
+      html += '<div class="ex-title">' + esc(f.icon) + ' &mdash; ' + esc(f.title) + '</div>';
+      if (f.detail) html += '<div class="ex-text">' + esc(f.detail) + '</div>';
+      html += '</div>';
+    });
+  }
+
+  // Next Steps section
+  var steps = buildNextSteps(results, t.totalCrashes, t.totalErrors, t.oomCount);
+  if (steps.length > 0) {
+    html += '<div class="section-label">Recommended Next Steps</div>';
+    steps.forEach(function(s, i) {
+      html += '<div class="step-card">';
+      html += '<div class="step-title"><span class="step-num">' + (i + 1) + '</span>' + esc(s.title) + '</div>';
+      html += '<div class="step-text">' + esc(s.text) + '</div>';
+      if (s.actions && s.actions.length) {
+        html += '<ul style="margin:8px 0 0 34px;padding:0;font-size:13px;color:#aaa">';
+        s.actions.forEach(function(a) { html += '<li style="margin-bottom:4px">' + esc(a) + '</li>'; });
+        html += '</ul>';
+      }
+      if (s.why) html += '<div class="step-why">Why: ' + esc(s.why) + '</div>';
+      html += '</div>';
+    });
+  } else if (t.totalCrashes === 0 && t.oomCount === 0) {
+    html += '<div class="section-label">Assessment</div>';
+    html += '<div class="explanation-box"><div class="ex-title">No critical issues found</div>';
+    html += '<div class="ex-text">The log files look healthy. No crashes or out-of-memory events were detected.' + (t.totalWarnings > 0 ? ' There are ' + t.totalWarnings + ' warnings that you may want to review, but they are typically informational.' : '') + '</div></div>';
+  }
+
+  // File Details section
+  html += '<div class="section-label">File Details</div>';
 
   // Tabs
   html += '<div class="tab-bar" id="tab-bar">';
-  types.forEach(function(t) {
-    var count = t === 'all' ? results.length : results.filter(function(r) { return r.type === t; }).length;
-    var cls = t === 'all' ? 'active' : '';
-    html += '<button class="' + cls + '" data-tab="' + t + '" onclick="switchTab(\'' + t + '\')">' + (t === 'all' ? 'All' : t) + ' (' + count + ')</button>';
+  types.forEach(function(tp) {
+    var count = tp === 'all' ? results.length : results.filter(function(r) { return r.type === tp; }).length;
+    var label = tp === 'all' ? 'All' : tp.charAt(0).toUpperCase() + tp.slice(1);
+    var cls = tp === 'all' ? 'active' : '';
+    html += '<button class="' + cls + '" data-tab="' + tp + '" onclick="switchTab(\'' + tp + '\')">' + label + ' (' + count + ')</button>';
   });
   html += '</div>';
 
@@ -1039,7 +1216,16 @@ function exportPdf() {
     h += '<div class="sep"></div>';
     h += '<h2>Recommended Next Steps</h2>';
     steps.forEach(function(s, i) {
-      h += '<div class="step"><span class="step-num">' + (i + 1) + '.</span> <span class="step-text">' + esc(s) + '</span></div>';
+      h += '<div class="step" style="margin-bottom:14px;padding:10px 12px;background:#f8f8f8;border-radius:6px">';
+      h += '<div style="font-weight:700;font-size:12px;margin-bottom:4px"><span class="step-num">' + (i + 1) + '.</span> ' + esc(s.title) + '</div>';
+      h += '<div class="step-text" style="font-size:11px;color:#444;margin-bottom:6px">' + esc(s.text) + '</div>';
+      if (s.actions && s.actions.length) {
+        h += '<ul style="margin:0 0 4px 16px;padding:0;font-size:11px;color:#555">';
+        s.actions.forEach(function(a) { h += '<li style="margin-bottom:2px">' + esc(a) + '</li>'; });
+        h += '</ul>';
+      }
+      if (s.why) h += '<div style="font-size:10px;color:#888;font-style:italic;margin-top:4px">Why: ' + esc(s.why) + '</div>';
+      h += '</div>';
     });
   }
 
